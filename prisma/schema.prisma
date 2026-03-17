@@ -1,0 +1,360 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TaskStatus {
+  open
+  waiting_on
+  done
+}
+
+enum TaskSourceType {
+  manual
+  import
+  github
+  voice
+}
+
+enum CommentType {
+  note
+  update
+  ai_feedback
+  system_event
+}
+
+enum TodayLens {
+  balanced
+  revenue
+  unblock
+  strategic
+  admin
+}
+
+enum TodayPlanStatus {
+  ready
+  stale
+  generating
+  failed
+}
+
+enum TodayGroupKey {
+  highest_leverage
+  quick_wins
+  waiting_follow_up
+}
+
+enum JobStatus {
+  queued
+  running
+  succeeded
+  failed
+}
+
+enum JobType {
+  classify_task
+  clarify_task
+  suggest_subtasks
+  generate_today_plan
+  transcribe_voice_capture
+  process_import
+  github_import_repo_issues
+  github_sync_issue
+}
+
+enum ImportSourceType {
+  csv
+  json
+}
+
+enum ImportStatus {
+  uploaded
+  parsing
+  reviewing
+  importing
+  completed
+  failed
+}
+
+enum ImportDecision {
+  new_task
+  merge_existing
+  skip
+}
+
+model Workspace {
+  id              String                 @id @default(cuid())
+  name            String
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  areas           Area[]
+  lists           TaskList[]
+  tasks           Task[]
+  tags            Tag[]
+  todayPlans      TodayPlan[]
+  feedback        TodayFeedbackMessage[]
+  preferences     UserPreferences?
+  githubConnection GitHubConnection?
+  repositories    GitHubRepository[]
+  imports         Import[]
+}
+
+model Area {
+  id          String     @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  description String?
+  position    Int        @default(0)
+  isArchived  Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  lists       TaskList[]
+  tasks       Task[]
+}
+
+model TaskList {
+  id          String     @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  areaId      String
+  area        Area       @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  description String?
+  position    Int        @default(0)
+  isArchived  Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  tasks       Task[]
+}
+
+model Task {
+  id                String           @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  areaId            String?
+  area              Area?            @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  listId            String?
+  list              TaskList?        @relation(fields: [listId], references: [id], onDelete: SetNull)
+  sourceType        TaskSourceType
+  sourceRef         String?
+  title             String
+  normalizedTitle   String
+  description       String?
+  status            TaskStatus
+  priorityOverride  Int?
+  dueDate           DateTime?
+  deferUntil        DateTime?
+  isInbox           Boolean          @default(false)
+  waitingReason     String?
+  waitingSince      DateTime?
+  recurrenceRule    String?
+  recurrenceLabel   String?
+  nextRecurrenceAt  DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  lastWorkedAt      DateTime?
+  completedAt       DateTime?
+  githubIssueLink   GitHubIssueLink?
+  subtasks          Subtask[]
+  comments          TaskComment[]
+  activities        TaskActivity[]
+  aiState           TaskAiState?
+  taskTags          TaskTag[]
+  todayItems        TodayPlanItem[]
+  importRows        ImportRow[]
+}
+
+model Subtask {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title     String
+  isDone    Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TaskComment {
+  id          String      @id @default(cuid())
+  taskId       String
+  task         Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  body         String
+  commentType  CommentType
+  createdAt    DateTime    @default(now())
+}
+
+model Tag {
+  id          String     @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  color       String?
+  createdAt   DateTime   @default(now())
+  taskTags    TaskTag[]
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}
+
+model TaskActivity {
+  id        String   @id @default(cuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  eventType  String
+  payload    String?
+  createdAt  DateTime @default(now())
+}
+
+model TaskAiState {
+  taskId                  String   @id
+  task                    Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  classification          String?
+  clarificationSuggestion String?
+  subtaskSuggestion       String?
+  nextStepSuggestion      String?
+  stalenessSignals        String?
+  lastAnalyzedAt          DateTime?
+}
+
+model TodayPlan {
+  id                String           @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  date              DateTime
+  lens              TodayLens
+  briefing          String
+  inputContext      String?
+  generationVersion Int              @default(1)
+  status            TodayPlanStatus
+  generatedAt       DateTime         @default(now())
+  items             TodayPlanItem[]
+
+  @@unique([workspaceId, date, lens])
+}
+
+model TodayPlanItem {
+  id          String        @id @default(cuid())
+  todayPlanId String
+  todayPlan   TodayPlan     @relation(fields: [todayPlanId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  groupKey    TodayGroupKey
+  rank        Int
+  reasonSummary String
+  reasonCodes String?
+  dismissed   Boolean       @default(false)
+}
+
+model TodayFeedbackMessage {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  date        DateTime
+  lens        TodayLens
+  body        String
+  createdAt   DateTime  @default(now())
+}
+
+model UserPreferences {
+  workspaceId         String    @id
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  defaultLens         TodayLens
+  quickWinsPreference Int       @default(60)
+  deepWorkPreference  Int       @default(70)
+  revenueWeight       Int       @default(65)
+  unblockWeight       Int       @default(60)
+  strategicWeight     Int       @default(70)
+  adminWeight         Int       @default(45)
+  workingHours        String?
+  updatedAt           DateTime  @updatedAt
+}
+
+model GitHubConnection {
+  workspaceId   String    @id
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  installationType String @default("personal_token")
+  encryptedToken String?
+  username      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model GitHubRepository {
+  id          String            @id @default(cuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       String
+  repo        String
+  isActive    Boolean           @default(true)
+  lastSyncedAt DateTime?
+  issueLinks  GitHubIssueLink[]
+}
+
+model GitHubIssueLink {
+  id                 String           @id @default(cuid())
+  taskId             String           @unique
+  task               Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  repositoryId       String
+  repository         GitHubRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubIssueNumber  Int
+  githubIssueNodeId  String?
+  githubIssueUrl     String
+  githubState        String
+  githubTitle        String
+  githubBodySnapshot String?
+  githubUpdatedAt    DateTime?
+  lastSyncedAt       DateTime?
+}
+
+model Import {
+  id              String           @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceType       ImportSourceType
+  status           ImportStatus
+  originalFilename String
+  mappingConfig    String?
+  summary          String?
+  createdAt        DateTime         @default(now())
+  completedAt      DateTime?
+  rows             ImportRow[]
+}
+
+model ImportRow {
+  id                String         @id @default(cuid())
+  importId          String
+  import            Import         @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rawPayload        String
+  normalizedPayload String?
+  decision          ImportDecision
+  matchedTaskId     String?
+  matchedTask       Task?          @relation(fields: [matchedTaskId], references: [id], onDelete: SetNull)
+  createdTaskId     String?
+}
+
+model Job {
+  id         String    @id @default(cuid())
+  type       JobType
+  status     JobStatus
+  payload    String?
+  attempts   Int       @default(0)
+  runAt      DateTime
+  lastError  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}

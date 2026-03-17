@@ -1,0 +1,35 @@
+{
+  "name": "prod-and-pri",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:setup": "powershell -Command \"if (Test-Path '.\\dev.db') { Remove-Item '.\\dev.db' -Force }; $sql = npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script; $sql | npx prisma db execute --stdin --url 'file:./dev.db'; npm run db:seed\"",
+    "db:seed": "prisma db seed"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.2",
+    "next": "^15.3.0",
+    "openai": "^6.29.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "prisma": "^6.19.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.8.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
