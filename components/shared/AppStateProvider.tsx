@@ -60,6 +60,8 @@ interface AppActionsContextValue {
   createGitHubIssueForTask: (taskId: string, repositoryId: string) => Promise<void>;
   createArea: (name: string) => Promise<void>;
   createList: (areaId: string, name: string) => Promise<void>;
+  deleteArea: (areaId: string) => Promise<void>;
+  deleteList: (listId: string) => Promise<void>;
   updateTaskPlacement: (
     taskId: string,
     areaId: string | null,
@@ -475,50 +477,54 @@ export function AppStateProvider({
     const trimmed = name.trim();
     if (!trimmed) return;
 
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ area: AppState["areas"][number] }>("/api/areas", {
+    await replacePayload(
+      apiRequest<BootstrapPayload>("/api/areas", {
         method: "POST",
         body: JSON.stringify({
-          name: trimmed
+          name: trimmed,
+          lens: payload.state.activeLens
         })
-      });
-      patchPayload((current) => ({
-        ...current,
-        state: {
-          ...current.state,
-          areas: [...current.state.areas, result.area]
-        }
-      }));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [patchPayload]);
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const createList = useCallback(async (areaId: string, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
 
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ list: AppState["lists"][number] }>("/api/lists", {
+    await replacePayload(
+      apiRequest<BootstrapPayload>("/api/lists", {
         method: "POST",
         body: JSON.stringify({
           areaId,
-          name: trimmed
+          name: trimmed,
+          lens: payload.state.activeLens
         })
-      });
-      patchPayload((current) => ({
-        ...current,
-        state: {
-          ...current.state,
-          lists: [...current.state.lists, result.list]
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
+
+  const deleteArea = useCallback(async (areaId: string) => {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(
+        `/api/areas/${areaId}?lens=${encodeURIComponent(payload.state.activeLens)}`,
+        {
+          method: "DELETE"
         }
-      }));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [patchPayload]);
+      )
+    );
+  }, [payload.state.activeLens, replacePayload]);
+
+  const deleteList = useCallback(async (listId: string) => {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(
+        `/api/lists/${listId}?lens=${encodeURIComponent(payload.state.activeLens)}`,
+        {
+          method: "DELETE"
+        }
+      )
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const updateTaskPlacement = useCallback(async (
     taskId: string,
@@ -587,20 +593,17 @@ export function AppStateProvider({
     areaId: string | null,
     listId: string | null
   ) => {
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/file`, {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/file`, {
         method: "POST",
         body: JSON.stringify({
           areaId,
-          listId
+          listId,
+          lens: payload.state.activeLens
         })
-      });
-      mergeTask(result.task);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [mergeTask]);
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const updatePreferences = useCallback(async (
     key: keyof AppState["preferences"],
@@ -682,6 +685,8 @@ export function AppStateProvider({
     createGitHubIssueForTask,
     createArea,
     createList,
+    deleteArea,
+    deleteList,
     updateTaskPlacement,
     updateTask,
     deleteTask,
@@ -698,6 +703,8 @@ export function AppStateProvider({
     createArea,
     createGitHubIssueForTask,
     createList,
+    deleteArea,
+    deleteList,
     createTask,
     createVoiceCapture,
     deleteTask,

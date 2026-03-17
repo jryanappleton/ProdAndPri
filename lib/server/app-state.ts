@@ -567,6 +567,106 @@ export async function createList(areaId: string, name: string) {
   return mapList(list);
 }
 
+export async function deleteArea(areaId: string) {
+  await prisma.$transaction(async (tx) => {
+    const affectedTasks = await tx.task.findMany({
+      where: {
+        OR: [
+          {
+            areaId
+          },
+          {
+            list: {
+              areaId
+            }
+          }
+        ]
+      },
+      select: {
+        id: true
+      }
+    });
+
+    await tx.task.updateMany({
+      where: {
+        OR: [
+          {
+            areaId
+          },
+          {
+            list: {
+              areaId
+            }
+          }
+        ]
+      },
+      data: {
+        areaId: null,
+        listId: null,
+        isInbox: true,
+        updatedAt: new Date()
+      }
+    });
+
+    if (affectedTasks.length) {
+      await tx.taskActivity.createMany({
+        data: affectedTasks.map((task) => ({
+          taskId: task.id,
+          eventType: "area_deleted",
+          payload: areaId
+        }))
+      });
+    }
+
+    await tx.area.delete({
+      where: {
+        id: areaId
+      }
+    });
+  });
+}
+
+export async function deleteList(listId: string) {
+  await prisma.$transaction(async (tx) => {
+    const affectedTasks = await tx.task.findMany({
+      where: {
+        listId
+      },
+      select: {
+        id: true
+      }
+    });
+
+    await tx.task.updateMany({
+      where: {
+        listId
+      },
+      data: {
+        areaId: null,
+        listId: null,
+        isInbox: true,
+        updatedAt: new Date()
+      }
+    });
+
+    if (affectedTasks.length) {
+      await tx.taskActivity.createMany({
+        data: affectedTasks.map((task) => ({
+          taskId: task.id,
+          eventType: "list_deleted",
+          payload: listId
+        }))
+      });
+    }
+
+    await tx.taskList.delete({
+      where: {
+        id: listId
+      }
+    });
+  });
+}
+
 export async function updateTaskPlacement(input: {
   taskId: string;
   areaId: string | null;

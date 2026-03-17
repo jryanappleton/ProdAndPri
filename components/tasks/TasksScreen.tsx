@@ -12,6 +12,8 @@ export function TasksScreen() {
     isSaving,
     createArea,
     createList,
+    deleteArea,
+    deleteList,
     updateTaskPlacement,
     getAreaName,
     getListName,
@@ -53,6 +55,29 @@ export function TasksScreen() {
     setNewAreaName("");
   }
 
+  async function handleDeleteArea(areaId: string, areaName: string) {
+    const confirmed = window.confirm(
+      `Delete the "${areaName}" area? Tasks in it will be moved back to Inbox.`
+    );
+    if (!confirmed) return;
+    await deleteArea(areaId);
+    if (activeArea === areaId) {
+      setActiveArea("all");
+      setActiveList("all");
+    }
+  }
+
+  async function handleDeleteList(listId: string, listName: string) {
+    const confirmed = window.confirm(
+      `Delete the "${listName}" list? Tasks in it will be moved back to Inbox.`
+    );
+    if (!confirmed) return;
+    await deleteList(listId);
+    if (activeList === listId) {
+      setActiveList("all");
+    }
+  }
+
   return (
     <div className="tasks-layout">
       <aside className="panel hierarchy-panel">
@@ -90,54 +115,77 @@ export function TasksScreen() {
         </button>
         {state.areas.map((area) => (
           <div key={area.id} className="hierarchy-group">
-            <button
-              type="button"
-              className={activeArea === area.id ? "hierarchy-item active" : "hierarchy-item"}
-              onClick={() => {
-                setActiveArea(area.id);
-                setActiveList("all");
-              }}
-            >
-              {area.name}
-            </button>
+            <div className="hierarchy-row">
+              <button
+                type="button"
+                className={activeArea === area.id ? "hierarchy-item active" : "hierarchy-item"}
+                onClick={() => {
+                  setActiveArea(area.id);
+                  setActiveList("all");
+                }}
+              >
+                {area.name}
+              </button>
+              <button
+                type="button"
+                className="icon-button danger-icon-button"
+                aria-label={`Delete area ${area.name}`}
+                title={`Delete area ${area.name}`}
+                disabled={isSaving}
+                onClick={() => handleDeleteArea(area.id, area.name)}
+              >
+                🗑
+              </button>
+            </div>
             <div className="hierarchy-children">
               {state.lists
                 .filter((list) => list.areaId === area.id)
                 .map((list) => (
-                  <button
-                    key={list.id}
-                    type="button"
-                    className={
-                      activeList === list.id
-                        ? `hierarchy-child hierarchy-child-active${dropListId === list.id ? " hierarchy-child-drop" : ""}`
-                        : dropListId === list.id
-                          ? "hierarchy-child hierarchy-child-drop"
-                        : "hierarchy-child"
-                    }
-                    onClick={() => {
-                      setActiveArea(area.id);
-                      setActiveList(list.id);
-                    }}
-                    onDragOver={(event) => {
-                      if (!draggingTaskId) return;
-                      event.preventDefault();
-                      setDropListId(list.id);
-                    }}
-                    onDragLeave={() => {
-                      if (dropListId === list.id) {
-                        setDropListId(null);
+                  <div key={list.id} className="hierarchy-child-row">
+                    <button
+                      type="button"
+                      className={
+                        activeList === list.id
+                          ? `hierarchy-child hierarchy-child-active${dropListId === list.id ? " hierarchy-child-drop" : ""}`
+                          : dropListId === list.id
+                            ? "hierarchy-child hierarchy-child-drop"
+                            : "hierarchy-child"
                       }
-                    }}
-                    onDrop={async (event) => {
-                      if (!draggingTaskId) return;
-                      event.preventDefault();
-                      setDropListId(null);
-                      setDraggingTaskId(null);
-                      await updateTaskPlacement(draggingTaskId, area.id, list.id);
-                    }}
-                  >
-                    {list.name}
-                  </button>
+                      onClick={() => {
+                        setActiveArea(area.id);
+                        setActiveList(list.id);
+                      }}
+                      onDragOver={(event) => {
+                        if (!draggingTaskId) return;
+                        event.preventDefault();
+                        setDropListId(list.id);
+                      }}
+                      onDragLeave={() => {
+                        if (dropListId === list.id) {
+                          setDropListId(null);
+                        }
+                      }}
+                      onDrop={async (event) => {
+                        if (!draggingTaskId) return;
+                        event.preventDefault();
+                        setDropListId(null);
+                        setDraggingTaskId(null);
+                        await updateTaskPlacement(draggingTaskId, area.id, list.id);
+                      }}
+                    >
+                      {list.name}
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button danger-icon-button icon-button-small"
+                      aria-label={`Delete list ${list.name}`}
+                      title={`Delete list ${list.name}`}
+                      disabled={isSaving}
+                      onClick={() => handleDeleteList(list.id, list.name)}
+                    >
+                      🗑
+                    </button>
+                  </div>
                 ))}
               <form
                 className="inline-create-form inline-create-form-compact"
