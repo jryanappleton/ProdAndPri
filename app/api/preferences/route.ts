@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { updatePreferences } from "@/lib/server/app-state";
-import { dataJson, errorJson } from "@/lib/server/http";
+import { bootstrapJson, errorJson } from "@/lib/server/http";
 import { TodayLens } from "@/lib/types";
 
 export async function PATCH(request: NextRequest) {
@@ -17,8 +17,8 @@ export async function PATCH(request: NextRequest) {
       value: number | TodayLens;
       lens?: TodayLens;
     };
-    const preferences = await updatePreferences(body.key, body.value);
-    return dataJson({ preferences });
+    await updatePreferences(body.key, body.value);
+    return await bootstrapJson(body.lens);
   } catch (error) {
     return errorJson(error);
   }

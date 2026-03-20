@@ -21,7 +21,11 @@ import {
   TaskList,
   TodayLens as ClientTodayLens
 } from "@/lib/types";
-import { analyzeTaskForExecution, suggestTaskUpdates } from "@/lib/server/ai";
+import {
+  analyzeTaskForExecution,
+  generateTaskDescription,
+  suggestTaskUpdates
+} from "@/lib/server/ai";
 import { createRepositoryIssue, fetchRepositoryIssues } from "@/lib/server/github";
 import { ensureWorkspaceSeeded } from "@/lib/server/seed-workspace";
 import {
@@ -32,6 +36,7 @@ import {
   serializeTaskAnalysisMeta,
   serializeStoredTaskAnalysis
 } from "@/lib/server/task-analysis";
+import { parseStoredTodayTaskAnalysis } from "@/lib/server/today-analysis";
 import { generateTodayPlan } from "@/lib/server/today";
 
 const workspaceInclude = {
@@ -224,6 +229,8 @@ function mapTask(task: TaskRecord): ClientTask {
     id: task.id,
     title: task.title,
     description: task.description ?? "",
+    nextAction: task.nextAction ?? "",
+    nextActionSubtaskId: task.nextActionSubtaskId,
     status: task.status,
     source: task.sourceType,
     areaId: task.areaId,
@@ -272,6 +279,11 @@ function mapTask(task: TaskRecord): ClientTask {
     })),
     suggestions: parseSuggestions(task.aiState?.classification),
     analysis: computeTaskAnalysisState(task),
+    todayAnalysis: parseStoredTodayTaskAnalysis(
+      task.aiState?.todayClassification,
+      task.aiState?.todayAnalyzedAt,
+      task.aiState?.todayMeta
+    ),
     completedAt: task.completedAt?.toISOString() ?? null,
     lastWorkedAt: task.lastWorkedAt?.toISOString() ?? null,
     createdAt: task.createdAt.toISOString(),
@@ -372,7 +384,33 @@ export async function getBootstrapPayload(
   state.dismissedToday = existingPlan?.items
     .filter((item) => item.dismissed)
     .map((item) => item.taskId) ?? [];
-  const todayPlan = await generateTodayPlan(state, activeLens);
+  const todayPlan = await generateTodayPlan(workspace.id, state, activeLens);
+  const persistedTodayItems = [
+    ...todayPlan.items.map((item, index) => ({
+      taskId: item.taskId,
+      groupKey: item.groupKey as TodayGroupKey,
+      rank: index + 1,
+      reasonSummary: item.reason,
+      reasonCodes: JSON.stringify(item.scoreBreakdown),
+      finalScore: item.score,
+      dismissed: state.dismissedToday.includes(item.taskId),
+      analysisGeneratedAt: item.analysisGeneratedAt
+        ? new Date(item.analysisGeneratedAt)
+        : null
+    })),
+    ...state.dismissedToday
+      .filter((taskId) => !todayPlan.items.some((item) => item.taskId === taskId))
+      .map((taskId, index) => ({
+        taskId,
+        groupKey: "highest_leverage" as TodayGroupKey,
+        rank: todayPlan.items.length + index + 1,
+        reasonSummary: "Dismissed from Today.",
+        reasonCodes: null,
+        finalScore: -1,
+        dismissed: true,
+        analysisGeneratedAt: null
+      }))
+  ];
 
   const persistedPlan = existingPlan
     ? await prisma.todayPlan.update({
@@ -385,13 +423,7 @@ export async function getBootstrapPayload(
           generatedAt: new Date(),
           items: {
             deleteMany: {},
-            create: todayPlan.items.map((item, index) => ({
-              taskId: item.taskId,
-              groupKey: item.groupKey as TodayGroupKey,
-              rank: index + 1,
-              reasonSummary: item.reason,
-              dismissed: state.dismissedToday.includes(item.taskId)
-            }))
+            create: persistedTodayItems
           }
         },
         include: {
@@ -413,13 +445,7 @@ export async function getBootstrapPayload(
           briefing: todayPlan.briefing,
           status: TodayPlanStatus.ready,
           items: {
-            create: todayPlan.items.map((item, index) => ({
-              taskId: item.taskId,
-              groupKey: item.groupKey as TodayGroupKey,
-              rank: index + 1,
-              reasonSummary: item.reason,
-              dismissed: false
-            }))
+            create: persistedTodayItems
           }
         },
         update: {
@@ -428,13 +454,7 @@ export async function getBootstrapPayload(
           generatedAt: new Date(),
           items: {
             deleteMany: {},
-            create: todayPlan.items.map((item, index) => ({
-              taskId: item.taskId,
-              groupKey: item.groupKey as TodayGroupKey,
-              rank: index + 1,
-              reasonSummary: item.reason,
-              dismissed: state.dismissedToday.includes(item.taskId)
-            }))
+            create: persistedTodayItems
           }
         },
         include: {
@@ -476,6 +496,68 @@ function buildActivity(eventType: string, payload?: string) {
   };
 }
 
+async function syncTaskNextActionLink(
+  tx: Prisma.TransactionClient,
+  task: {
+    id: string;
+    nextAction: string | null;
+    nextActionSubtaskId: string | null;
+    subtasks: Array<{ id: string; title: string; isDone: boolean; position: number }>;
+  },
+  nextActionInput: string
+) {
+  const trimmedNextAction = nextActionInput.trim();
+  const linkedSubtask =
+    task.nextActionSubtaskId
+      ? task.subtasks.find((subtask) => subtask.id === task.nextActionSubtaskId) ?? null
+      : null;
+  const activeLinkedSubtask =
+    linkedSubtask && !linkedSubtask.isDone ? linkedSubtask : null;
+
+  if (!trimmedNextAction) {
+    return {
+      nextAction: "",
+      nextActionSubtaskId: null
+    };
+  }
+
+  const reusableSubtask =
+    activeLinkedSubtask ??
+    task.subtasks.find((subtask) => !subtask.isDone && subtask.title === trimmedNextAction) ??
+    null;
+
+  if (reusableSubtask) {
+    if (reusableSubtask.title !== trimmedNextAction) {
+      await tx.subtask.update({
+        where: {
+          id: reusableSubtask.id
+        },
+        data: {
+          title: trimmedNextAction
+        }
+      });
+    }
+
+    return {
+      nextAction: trimmedNextAction,
+      nextActionSubtaskId: reusableSubtask.id
+    };
+  }
+
+  const createdSubtask = await tx.subtask.create({
+    data: {
+      taskId: task.id,
+      title: trimmedNextAction,
+      position: task.subtasks.length
+    }
+  });
+
+  return {
+    nextAction: trimmedNextAction,
+    nextActionSubtaskId: createdSubtask.id
+  };
+}
+
 function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -505,6 +587,8 @@ export async function createTask(input: {
       title,
       normalizedTitle: title.toLowerCase(),
       description: "",
+      nextAction: "",
+      nextActionSubtaskId: null,
       status: TaskStatus.open,
       sourceType: input.source ?? TaskSourceType.manual,
       isInbox: true,
@@ -565,6 +649,25 @@ export async function createList(areaId: string, name: string) {
   });
 
   return mapList(list);
+}
+
+export async function createTag(name: string) {
+  const workspace = await prisma.workspace.findFirstOrThrow();
+  const trimmed = name.trim();
+
+  const tag = await prisma.tag.create({
+    data: {
+      workspaceId: workspace.id,
+      name: trimmed,
+      slug: slugify(trimmed)
+    }
+  });
+
+  return {
+    id: tag.id,
+    name: tag.name,
+    tone: "neutral" as const
+  };
 }
 
 export async function deleteArea(areaId: string) {
@@ -700,31 +803,70 @@ export async function updateTask(input: {
   taskId: string;
   title: string;
   description: string;
+  nextAction: string;
   areaId: string | null;
   listId: string | null;
+  tagIds: string[];
 }) {
-  await prisma.task.update({
-    where: {
-      id: input.taskId
-    },
-    data: {
-      title: input.title.trim(),
-      normalizedTitle: input.title.trim().toLowerCase(),
-      description: input.description.trim(),
-      areaId: input.areaId,
-      listId: input.listId,
-      isInbox: input.areaId ? false : true,
-      updatedAt: new Date(),
-      activities: {
-        create: buildActivity(
-          "task_updated",
-          JSON.stringify({
-            areaId: input.areaId,
-            listId: input.listId
-          })
-        )
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findUniqueOrThrow({
+      where: {
+        id: input.taskId
+      },
+      include: {
+        subtasks: {
+          orderBy: {
+            position: "asc"
+          }
+        }
       }
-    }
+    });
+
+    const nextActionState = await syncTaskNextActionLink(
+      tx,
+      {
+        id: task.id,
+        nextAction: task.nextAction,
+        nextActionSubtaskId: task.nextActionSubtaskId,
+        subtasks: task.subtasks
+      },
+      input.nextAction
+    );
+
+    await tx.task.update({
+      where: {
+        id: input.taskId
+      },
+      data: {
+        title: input.title.trim(),
+        normalizedTitle: input.title.trim().toLowerCase(),
+        description: input.description.trim(),
+        nextAction: nextActionState.nextAction,
+        nextActionSubtaskId: nextActionState.nextActionSubtaskId,
+        areaId: input.areaId,
+        listId: input.listId,
+        isInbox: input.areaId ? false : true,
+        updatedAt: new Date(),
+        taskTags: {
+          deleteMany: {},
+          create: input.tagIds.map((tagId) => ({
+            tagId
+          }))
+        },
+        activities: {
+          create: buildActivity(
+            "task_updated",
+            JSON.stringify({
+              nextAction: nextActionState.nextAction,
+              nextActionSubtaskId: nextActionState.nextActionSubtaskId,
+              areaId: input.areaId,
+              listId: input.listId,
+              tagIds: input.tagIds
+            })
+          )
+        }
+      }
+    });
   });
 
   return getTaskSnapshot(input.taskId);
@@ -783,30 +925,92 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
 }
 
 export async function toggleSubtask(taskId: string, subtaskId: string) {
-  const subtask = await prisma.subtask.findUniqueOrThrow({
-    where: {
-      id: subtaskId
-    }
-  });
-
-  await prisma.subtask.update({
-    where: {
-      id: subtaskId
-    },
-    data: {
-      isDone: !subtask.isDone
-    }
-  });
-
-  await prisma.task.update({
-    where: {
-      id: taskId
-    },
-    data: {
-      activities: {
-        create: buildActivity("subtask_toggled", subtask.title)
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findUniqueOrThrow({
+      where: {
+        id: taskId
+      },
+      select: {
+        nextActionSubtaskId: true
       }
-    }
+    });
+    const subtask = await tx.subtask.findUniqueOrThrow({
+      where: {
+        id: subtaskId
+      }
+    });
+    const nextIsDone = !subtask.isDone;
+    const isLinkedNextActionSubtask = task.nextActionSubtaskId === subtaskId;
+
+    await tx.subtask.update({
+      where: {
+        id: subtaskId
+      },
+      data: {
+        isDone: nextIsDone
+      }
+    });
+
+    await tx.task.update({
+      where: {
+        id: taskId
+      },
+      data: {
+        nextAction:
+          isLinkedNextActionSubtask && nextIsDone ? "" : undefined,
+        nextActionSubtaskId:
+          isLinkedNextActionSubtask && nextIsDone ? null : undefined,
+        activities: {
+          create: buildActivity(
+            "subtask_toggled",
+            isLinkedNextActionSubtask && nextIsDone
+              ? `${subtask.title} (completed active next action)`
+              : subtask.title
+          )
+        }
+      }
+    });
+  });
+
+  return getTaskSnapshot(taskId);
+}
+
+export async function updateSubtaskTitle(taskId: string, subtaskId: string, title: string) {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) {
+    throw new Error("Subtask title cannot be empty.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findUniqueOrThrow({
+      where: {
+        id: taskId
+      },
+      select: {
+        nextActionSubtaskId: true
+      }
+    });
+
+    await tx.subtask.update({
+      where: {
+        id: subtaskId
+      },
+      data: {
+        title: trimmedTitle
+      }
+    });
+
+    await tx.task.update({
+      where: {
+        id: taskId
+      },
+      data: {
+        nextAction: task.nextActionSubtaskId === subtaskId ? trimmedTitle : undefined,
+        activities: {
+          create: buildActivity("subtask_updated", trimmedTitle)
+        }
+      }
+    });
   });
 
   return getTaskSnapshot(taskId);
@@ -826,6 +1030,70 @@ export async function addComment(taskId: string, body: string) {
       },
       activities: {
         create: buildActivity("comment_added")
+      }
+    }
+  });
+
+  return getTaskSnapshot(taskId);
+}
+
+export async function generateTaskDescriptionForTask(taskId: string) {
+  const task = await prisma.task.findUniqueOrThrow({
+    where: {
+      id: taskId
+    },
+    include: taskInclude
+  });
+
+  const description = await generateTaskDescription({
+    task: {
+      title: task.title,
+      currentDescription: task.description ?? "",
+      status: task.status,
+      area: task.area?.name ?? null,
+      list: task.list?.name ?? null,
+      tags: task.taskTags.map((entry) => entry.tag.name),
+      waitingReason: task.waitingReason,
+      dueDate: task.dueDate?.toISOString() ?? null,
+      recurrenceLabel: task.recurrenceLabel,
+      githubLink: task.githubIssueLink
+        ? {
+            repository: `${task.githubIssueLink.repository.owner}/${task.githubIssueLink.repository.repo}`,
+            title: task.githubIssueLink.githubTitle,
+            state: task.githubIssueLink.githubState
+          }
+        : null
+    },
+    comments: [...task.comments]
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, 6)
+      .map((entry) => ({
+        createdAt: entry.createdAt.toISOString(),
+        body: entry.body
+      })),
+    subtasks: task.subtasks.map((entry) => ({
+      title: entry.title,
+      isDone: entry.isDone
+    })),
+    activity: [...task.activities]
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, 8)
+      .map((entry) => ({
+        createdAt: entry.createdAt.toISOString(),
+        eventType: entry.eventType,
+        payload: entry.payload
+      }))
+  });
+
+  await prisma.task.update({
+    where: {
+      id: taskId
+    },
+    data: {
+      description,
+      updatedAt: new Date(),
+      activities: {
+        create: buildActivity("description_generated", "AI generated task description")
       }
     }
   });
@@ -912,7 +1180,7 @@ export async function analyzeTask(taskId: string) {
 
 export async function applyTaskAnalysisSuggestion(input: {
   taskId: string;
-  action: "next_step" | "suggested_note" | "improved_task";
+  action: "task_next_action" | "next_step" | "suggested_note" | "improved_task";
   itemId?: string;
 }) {
   const task = await prisma.task.findUniqueOrThrow({
@@ -960,6 +1228,55 @@ export async function applyTaskAnalysisSuggestion(input: {
           create: buildActivity("analysis_applied", "Applied improved task framing")
         }
       }
+    });
+    return getTaskSnapshot(input.taskId);
+  }
+
+  if (input.action === "task_next_action") {
+    if (!latest.recommendedNextAction || latest.recommendedNextAction.applied) {
+      throw new Error("The recommended next action has already been applied.");
+    }
+
+    latest.recommendedNextAction.applied = true;
+
+    await prisma.$transaction(async (tx) => {
+      const nextActionState = await syncTaskNextActionLink(
+        tx,
+        {
+          id: task.id,
+          nextAction: task.nextAction,
+          nextActionSubtaskId: task.nextActionSubtaskId,
+          subtasks: task.subtasks
+        },
+        latest.recommendedNextAction?.value ?? ""
+      );
+
+      await tx.task.update({
+        where: {
+          id: input.taskId
+        },
+        data: {
+          nextAction: nextActionState.nextAction,
+          nextActionSubtaskId: nextActionState.nextActionSubtaskId,
+          aiState: {
+            upsert: {
+              create: {
+                clarificationSuggestion: serializeStoredTaskAnalysis(latest),
+                lastAnalyzedAt: task.aiState?.lastAnalyzedAt ?? new Date()
+              },
+              update: {
+                clarificationSuggestion: serializeStoredTaskAnalysis(latest)
+              }
+            }
+          },
+          activities: {
+            create: buildActivity(
+              "analysis_applied",
+              `Saved next action: ${nextActionState.nextAction}`
+            )
+          }
+        }
+      });
     });
     return getTaskSnapshot(input.taskId);
   }
@@ -1156,7 +1473,12 @@ export async function fileTaskFromInbox(input: {
     },
     include: {
       aiState: true,
-      taskTags: true
+      taskTags: true,
+      subtasks: {
+        orderBy: {
+          position: "asc"
+        }
+      }
     }
   });
 
@@ -1166,6 +1488,7 @@ export async function fileTaskFromInbox(input: {
   const acceptedArea = accepted.find((entry) => entry.field === "areaId");
   const acceptedList = accepted.find((entry) => entry.field === "listId");
   const acceptedTags = accepted.filter((entry) => entry.field === "tagId");
+  const acceptedNextStep = accepted.find((entry) => entry.field === "nextStep");
 
   const resolvedAreaId =
     input.areaId ??
@@ -1188,51 +1511,67 @@ export async function fileTaskFromInbox(input: {
     }
   });
 
-  await prisma.task.update({
-    where: {
-      id: input.taskId
-    },
-    data: {
-      title: acceptedTitle?.value ?? task.title,
-      normalizedTitle: (acceptedTitle?.value ?? task.title).toLowerCase(),
-      areaId: resolvedAreaId,
-      listId: resolvedListId,
-      isInbox: false,
-      updatedAt: new Date(),
-      taskTags: {
-        deleteMany: {},
-        create: Array.from(nextTagIds).map((tagId) => ({
-          tagId
-        }))
+  await prisma.$transaction(async (tx) => {
+    const nextActionState = await syncTaskNextActionLink(
+      tx,
+      {
+        id: task.id,
+        nextAction: task.nextAction,
+        nextActionSubtaskId: task.nextActionSubtaskId,
+        subtasks: task.subtasks
       },
-      aiState: {
-        upsert: {
-          create: {
-            classification: serializeSuggestions(
-              suggestions.map((entry) =>
-                entry.state === "accepted" ? { ...entry, state: "suggested" as const } : entry
+      acceptedNextStep?.value ?? task.nextAction ?? ""
+    );
+
+    await tx.task.update({
+      where: {
+        id: input.taskId
+      },
+      data: {
+        title: acceptedTitle?.value ?? task.title,
+        normalizedTitle: (acceptedTitle?.value ?? task.title).toLowerCase(),
+        nextAction: nextActionState.nextAction,
+        nextActionSubtaskId: nextActionState.nextActionSubtaskId,
+        areaId: resolvedAreaId,
+        listId: resolvedListId,
+        isInbox: false,
+        updatedAt: new Date(),
+        taskTags: {
+          deleteMany: {},
+          create: Array.from(nextTagIds).map((tagId) => ({
+            tagId
+          }))
+        },
+        aiState: {
+          upsert: {
+            create: {
+              classification: serializeSuggestions(
+                suggestions.map((entry) =>
+                  entry.state === "accepted" ? { ...entry, state: "suggested" as const } : entry
+                )
               )
-            )
-          },
-          update: {
-            classification: serializeSuggestions(
-              suggestions.map((entry) =>
-                entry.state === "accepted" ? { ...entry, state: "suggested" as const } : entry
+            },
+            update: {
+              classification: serializeSuggestions(
+                suggestions.map((entry) =>
+                  entry.state === "accepted" ? { ...entry, state: "suggested" as const } : entry
+                )
               )
-            )
+            }
           }
+        },
+        activities: {
+          create: buildActivity(
+            "task_filed",
+            JSON.stringify({
+              areaId: resolvedAreaId,
+              listId: resolvedListId,
+              nextActionSubtaskId: nextActionState.nextActionSubtaskId
+            })
+          )
         }
-      },
-      activities: {
-        create: buildActivity(
-          "task_filed",
-          JSON.stringify({
-            areaId: resolvedAreaId,
-            listId: resolvedListId
-          })
-        )
       }
-    }
+    });
   });
 
   return getTaskSnapshot(input.taskId);

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { toggleSubtask } from "@/lib/server/app-state";
-import { dataJson, errorJson } from "@/lib/server/http";
+import { toggleSubtask, updateSubtaskTitle } from "@/lib/server/app-state";
+import { bootstrapJson, errorJson } from "@/lib/server/http";
+import { TodayLens } from "@/lib/types";
 
 export async function PATCH(
   request: NextRequest,
@@ -8,8 +9,16 @@ export async function PATCH(
 ) {
   try {
     const { taskId, subtaskId } = await context.params;
-    const task = await toggleSubtask(taskId, subtaskId);
-    return dataJson({ task });
+    const body = (await request.json().catch(() => ({}))) as {
+      title?: string;
+      lens?: TodayLens;
+    };
+    if (typeof body.title === "string") {
+      await updateSubtaskTitle(taskId, subtaskId, body.title);
+    } else {
+      await toggleSubtask(taskId, subtaskId);
+    }
+    return await bootstrapJson(body.lens);
   } catch (error) {
     return errorJson(error);
   }

@@ -64,6 +64,10 @@ export function InboxScreen() {
               const acceptedTitle = findAcceptedValue(task, "title");
               const acceptedAreaName = findAcceptedValue(task, "areaId");
               const acceptedListName = findAcceptedValue(task, "listId");
+              const acceptedNextAction = task.suggestions.find(
+                (suggestion) =>
+                  suggestion.field === "nextStep" && suggestion.state === "accepted"
+              )?.value;
               const acceptedTags = task.suggestions.filter(
                 (suggestion) =>
                   suggestion.field === "tagId" && suggestion.state === "accepted"
@@ -89,6 +93,7 @@ export function InboxScreen() {
               const needsListSelection = Boolean(selectedAreaId) && !selectedListId;
               const stagedLines = [
                 acceptedTitle ? `Title: ${acceptedTitle}` : null,
+                acceptedNextAction ? `Next action: ${acceptedNextAction}` : null,
                 selectedAreaId
                   ? `Area: ${state.areas.find((area) => area.id === selectedAreaId)?.name ?? "Unknown"}`
                   : null,
@@ -101,8 +106,9 @@ export function InboxScreen() {
                 <article key={task.id} className="task-card">
                   <p className="eyebrow">Current state</p>
                   <h3>{task.title}</h3>
-                  <p className="task-description">
-                    {task.description || "Still rough. Needs clarification and placement."}
+                  <p className="task-next-action">
+                    <strong>Next Action:</strong>{" "}
+                    {acceptedNextAction || task.nextAction || "No next action yet."}
                   </p>
                   <p className="task-meta">Current area: {getAreaName(task.areaId)}</p>
 

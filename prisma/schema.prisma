@@ -147,6 +147,8 @@ model Task {
   title             String
   normalizedTitle   String
   description       String?
+  nextAction        String?
+  nextActionSubtaskId String?
   status            TaskStatus
   priorityOverride  Int?
   dueDate           DateTime?
@@ -229,6 +231,9 @@ model TaskAiState {
   nextStepSuggestion      String?
   stalenessSignals        String?
   lastAnalyzedAt          DateTime?
+  todayClassification     String?
+  todayMeta               String?
+  todayAnalyzedAt         DateTime?
 }
 
 model TodayPlan {
@@ -258,6 +263,8 @@ model TodayPlanItem {
   reasonSummary String
   reasonCodes String?
   dismissed   Boolean       @default(false)
+  finalScore  Float         @default(0)
+  analysisGeneratedAt DateTime?
 }
 
 model TodayFeedbackMessage {

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { addComment } from "@/lib/server/app-state";
+import { generateTaskDescriptionForTask } from "@/lib/server/app-state";
 import { bootstrapJson, errorJson } from "@/lib/server/http";
 import { TodayLens } from "@/lib/types";
 
@@ -9,11 +9,11 @@ export async function POST(
 ) {
   try {
     const { taskId } = await context.params;
-    const body = (await request.json()) as {
-      body: string;
+    const body = (await request.json().catch(() => ({}))) as {
       lens?: TodayLens;
     };
-    await addComment(taskId, body.body);
+
+    await generateTaskDescriptionForTask(taskId);
     return await bootstrapJson(body.lens);
   } catch (error) {
     return errorJson(error);

@@ -11,6 +11,8 @@ function isoPlusDays(days: number) {
 function createTask(task: Partial<Task> & Pick<Task, "id" | "title">): Task {
   return {
     description: "",
+    nextAction: "",
+    nextActionSubtaskId: null,
     status: "open",
     source: "manual",
     areaId: null,
@@ -36,6 +38,7 @@ function createTask(task: Partial<Task> & Pick<Task, "id" | "title">): Task {
       lastRunSource: null,
       lastRunMessage: null
     },
+    todayAnalysis: null,
     completedAt: null,
     lastWorkedAt: isoPlusDays(-1),
     createdAt: isoPlusDays(-10),
@@ -82,6 +85,7 @@ export const initialState: AppState = {
       id: "task-1",
       title: "Finalize occupancy pricing test for next weekend",
       description: "Review current booking velocity and update the pricing plan.",
+      nextAction: "Review current booking velocity and draft the weekend price change.",
       areaId: "area-lt",
       listId: "list-lt-rev",
       tagIds: ["tag-revenue", "tag-strategic"],
@@ -106,6 +110,7 @@ export const initialState: AppState = {
       id: "task-2",
       title: "Ship Today view hierarchy polish",
       description: "Refine grouping, reason labels, and recommendation card spacing.",
+      nextAction: "Tighten the recommendation card spacing in the Today view.",
       areaId: "area-pw",
       listId: "list-pw-prod",
       tagIds: ["tag-strategic", "tag-deep", "tag-github"],
@@ -127,6 +132,7 @@ export const initialState: AppState = {
       id: "task-3",
       title: "Follow up with contractor on laundry room quote",
       description: "Need a revised estimate and timeline before approving.",
+      nextAction: "Send the contractor a follow-up asking for the revised quote and timeline.",
       status: "waiting_on",
       areaId: "area-lt",
       listId: "list-lt-ops",
@@ -138,6 +144,7 @@ export const initialState: AppState = {
       id: "task-4",
       title: "Outline onboarding checklist for imported GitHub issues",
       description: "Decide how imported issues should be categorized during setup.",
+      nextAction: "Draft the first pass of the onboarding checklist sections.",
       areaId: "area-pw",
       listId: "list-pw-eng",
       tagIds: ["tag-strategic"],
@@ -147,6 +154,7 @@ export const initialState: AppState = {
       id: "task-5",
       title: "Post March occupancy reel",
       description: "Cut a quick social clip using the latest booking screenshots.",
+      nextAction: "Pick the screenshots and assemble the first cut of the reel.",
       areaId: "area-hu",
       listId: "list-hu-content",
       tagIds: ["tag-quick", "tag-revenue"],
@@ -156,6 +164,7 @@ export const initialState: AppState = {
       id: "task-6",
       title: "Reconcile business card charges",
       description: "Quick admin cleanup before the next bookkeeping pass.",
+      nextAction: "Match the newest card charges against the receipts.",
       areaId: "area-pa",
       listId: "list-pa-admin",
       tagIds: ["tag-quick"],
@@ -165,6 +174,7 @@ export const initialState: AppState = {
       id: "task-7",
       title: "Plan Q2 product narrative",
       description: "Clarify the positioning story across Today, hierarchy, and AI guidance.",
+      nextAction: "Outline the three main points of the Q2 product narrative.",
       areaId: "area-pw",
       listId: "list-pw-prod",
       tagIds: ["tag-strategic", "tag-deep"],
@@ -174,6 +184,7 @@ export const initialState: AppState = {
       id: "task-8",
       title: "Email accountant about missing 1099 copy",
       description: "Need a clean copy before filing.",
+      nextAction: "Send the accountant a request for the missing 1099 copy.",
       areaId: "area-pa",
       listId: "list-pa-admin",
       tagIds: ["tag-followup", "tag-quick"],
@@ -207,6 +218,13 @@ export const initialState: AppState = {
           value: "Strategic",
           field: "tagId",
           state: "suggested"
+        },
+        {
+          id: "sg94",
+          label: "Suggested next action",
+          value: "Sketch the first version of the voice capture workflow.",
+          field: "nextStep",
+          state: "suggested"
         }
       ]
     }),
@@ -222,6 +240,13 @@ export const initialState: AppState = {
           label: "Suggested area",
           value: "Personal Admin",
           field: "areaId",
+          state: "suggested"
+        },
+        {
+          id: "sg102",
+          label: "Suggested next action",
+          value: "Review the imported tasks and flag obvious duplicate candidates.",
+          field: "nextStep",
           state: "suggested"
         }
       ]

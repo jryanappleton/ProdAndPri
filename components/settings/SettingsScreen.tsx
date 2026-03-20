@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useAppState } from "@/components/shared/AppStateProvider";
+import { TagPill } from "@/components/shared/TagPill";
 import { GitHubRepositoryOption, TodayLens } from "@/lib/types";
 
 export function SettingsScreen() {
@@ -10,6 +11,7 @@ export function SettingsScreen() {
     integrations,
     isSaving,
     updatePreferences,
+    createTag,
     addGitHubRepository,
     toggleGithubConnected,
     importSampleTasks,
@@ -20,6 +22,7 @@ export function SettingsScreen() {
   const [discoveredRepositories, setDiscoveredRepositories] = useState<GitHubRepositoryOption[]>([]);
   const [selectedRepository, setSelectedRepository] = useState("");
   const [isDiscovering, setIsDiscovering] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
 
   const preferenceRows: {
     key: keyof typeof state.preferences;
@@ -70,6 +73,12 @@ export function SettingsScreen() {
     setSelectedRepository("");
   }
 
+  async function handleCreateTag(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createTag(newTagName);
+    setNewTagName("");
+  }
+
   return (
     <div className="settings-stack">
       <section className="panel">
@@ -112,6 +121,36 @@ export function SettingsScreen() {
       </section>
 
       <div className="detail-columns">
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Tags</p>
+              <h3>Manage task tags</h3>
+            </div>
+          </div>
+          <p className="muted-copy">
+            Tags are persisted in the data model and can now be assigned from Task Detail.
+          </p>
+          <form className="inline-create-form" onSubmit={handleCreateTag}>
+            <input
+              value={newTagName}
+              onChange={(event) => setNewTagName(event.target.value)}
+              placeholder="Create a tag..."
+              disabled={isSaving}
+            />
+            <button type="submit" disabled={isSaving || !newTagName.trim()}>
+              Add tag
+            </button>
+          </form>
+          <div className="tag-row">
+            {state.tags.length ? (
+              state.tags.map((tag) => <TagPill key={tag.id} label={tag.name} />)
+            ) : (
+              <p className="muted-copy">No tags yet.</p>
+            )}
+          </div>
+        </section>
+
         <section className="panel">
           <div className="panel-header">
             <div>

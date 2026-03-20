@@ -144,7 +144,7 @@ button {
   letter-spacing: 0.03em;
   text-transform: none;
 }
-.task-meta, .task-description, .muted-copy, .task-row p { color: var(--muted); }
+.task-meta, .task-description, .task-next-action, .muted-copy, .task-row p { color: var(--muted); }
 .task-meta { margin: 0; }
 .task-reason {
   margin: -4px 0 0;
@@ -153,6 +153,12 @@ button {
   line-height: 1.45;
 }
 .task-description { margin: 0; line-height: 1.55; }
+.task-next-action {
+  margin: 0;
+  line-height: 1.55;
+  font-weight: 600;
+  color: #2d3734;
+}
 .task-card .tag-row,
 .task-card .action-row,
 .task-card .inline-comment {
@@ -220,6 +226,10 @@ button {
   border: 1px solid rgba(156, 59, 40, 0.18);
 }
 .task-row { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 18px; }
+.tasks-panel .task-row-stack {
+  gap: 14px;
+  margin-top: 2px;
+}
 .drag-handle {
   color: var(--muted);
   letter-spacing: -0.1em;
@@ -232,9 +242,20 @@ button {
 .task-row-main .task-path {
   margin: 4px 0 8px;
 }
+.task-row-main .task-next-action {
+  margin: 12px 0 14px;
+}
 .task-row-meta { display: flex; flex-direction: column; gap: 8px; color: var(--muted); text-align: right; min-width: 110px; }
 
 .detail-description { max-width: 80ch; color: var(--muted); margin: 0; }
+.detail-next-action {
+  max-width: 80ch;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: #2d3734;
+}
 .detail-main {
   background: linear-gradient(180deg, rgba(255, 251, 243, 0.96), rgba(243, 248, 247, 0.92));
   display: grid;
@@ -275,6 +296,29 @@ button {
 .suggestion-card.accepted { background: rgba(31, 122, 70, 0.1); }
 .suggestion-card.ignored { opacity: 0.7; }
 .check-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; }
+.check-row-card {
+  align-items: flex-start;
+  padding: 14px 0;
+}
+.subtask-content {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+}
+.subtask-content input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid rgba(48, 41, 34, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+}
+.subtask-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .field-block { display: grid; gap: 8px; }
 .placement-grid {
   display: grid;
@@ -295,6 +339,18 @@ button {
 .staged-stack {
   display: grid;
   gap: 8px;
+}
+.inline-edit-row {
+  display: grid;
+  gap: 10px;
+}
+.inline-edit-row input {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid rgba(48, 41, 34, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
 }
 
 .status-badge {

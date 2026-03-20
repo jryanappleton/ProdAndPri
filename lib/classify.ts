@@ -42,5 +42,13 @@ export function buildMockSuggestions(input: string): TaskSuggestion[] {
     state: "suggested"
   });
 
+  suggestions.push({
+    id: crypto.randomUUID(),
+    label: "Suggested next action",
+    value: `Take the first concrete step on: ${input.trim()}`,
+    field: "nextStep",
+    state: "suggested"
+  });
+
   return suggestions;
 }

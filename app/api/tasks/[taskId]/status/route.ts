@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { updateTaskStatus } from "@/lib/server/app-state";
-import { dataJson, errorJson } from "@/lib/server/http";
+import { bootstrapJson, errorJson } from "@/lib/server/http";
+import { TodayLens } from "@/lib/types";
 
 export async function PATCH(
   request: NextRequest,
@@ -10,9 +11,10 @@ export async function PATCH(
     const { taskId } = await context.params;
     const body = (await request.json()) as {
       status: "open" | "waiting_on" | "done";
+      lens?: TodayLens;
     };
-    const task = await updateTaskStatus(taskId, body.status);
-    return dataJson({ task });
+    await updateTaskStatus(taskId, body.status);
+    return await bootstrapJson(body.lens);
   } catch (error) {
     return errorJson(error);
   }

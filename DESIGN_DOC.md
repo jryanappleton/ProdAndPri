@@ -739,6 +739,7 @@ Every Today card should prominently show:
 
 - title
 - reason summary
+- next action
 - minimal supporting metadata
 - quick actions
 

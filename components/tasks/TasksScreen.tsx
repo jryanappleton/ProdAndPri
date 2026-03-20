@@ -15,6 +15,7 @@ export function TasksScreen() {
     deleteArea,
     deleteList,
     updateTaskPlacement,
+    updateTask,
     getAreaName,
     getListName,
     getTagNames
@@ -27,6 +28,8 @@ export function TasksScreen() {
   const [listDrafts, setListDrafts] = useState<Record<string, string>>({});
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dropListId, setDropListId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [nextActionDrafts, setNextActionDrafts] = useState<Record<string, string>>({});
 
   const filteredTasks = useMemo(() => {
     return state.tasks.filter((task) => {
@@ -36,7 +39,9 @@ export function TasksScreen() {
       if (activeStatus !== "all" && task.status !== activeStatus) return false;
       if (
         query &&
-        !`${task.title} ${task.description}`.toLowerCase().includes(query.toLowerCase())
+        !`${task.title} ${task.nextAction} ${task.description}`
+          .toLowerCase()
+          .includes(query.toLowerCase())
       ) {
         return false;
       }
@@ -76,6 +81,30 @@ export function TasksScreen() {
     if (activeList === listId) {
       setActiveList("all");
     }
+  }
+
+  function startEditingNextAction(taskId: string, currentValue: string) {
+    setEditingTaskId(taskId);
+    setNextActionDrafts((current) => ({
+      ...current,
+      [taskId]: current[taskId] ?? currentValue
+    }));
+  }
+
+  async function saveNextAction(taskId: string) {
+    const task = state.tasks.find((entry) => entry.id === taskId);
+    if (!task) return;
+
+    await updateTask({
+      taskId,
+      title: task.title,
+      description: task.description,
+      nextAction: nextActionDrafts[taskId] ?? "",
+      areaId: task.areaId,
+      listId: task.listId,
+      tagIds: task.tagIds
+    });
+    setEditingTaskId(null);
   }
 
   return (
@@ -247,9 +276,8 @@ export function TasksScreen() {
         <div className="task-row-stack">
           {filteredTasks.length ? (
             filteredTasks.map((task) => (
-              <Link
+              <article
                 key={task.id}
-                href={`/tasks/${task.id}`}
                 className="task-row"
                 draggable
                 onDragStart={() => setDraggingTaskId(task.id)}
@@ -269,8 +297,50 @@ export function TasksScreen() {
                     {getAreaName(task.areaId)}
                     {task.listId ? ` > ${getListName(task.listId)}` : ""}
                   </p>
-                  <h4>{task.title}</h4>
-                  <p>{task.description || "No notes yet."}</p>
+                  <Link href={`/tasks/${task.id}`}>
+                    <h4>{task.title}</h4>
+                  </Link>
+                  <p className="task-next-action">
+                    <strong>Next Action:</strong>{" "}
+                    {task.nextAction || "No next action yet."}
+                  </p>
+                  {editingTaskId === task.id ? (
+                    <div className="inline-edit-row">
+                      <input
+                        value={nextActionDrafts[task.id] ?? ""}
+                        onChange={(event) =>
+                          setNextActionDrafts((current) => ({
+                            ...current,
+                            [task.id]: event.target.value
+                          }))
+                        }
+                        placeholder="Define the next concrete step..."
+                        disabled={isSaving}
+                      />
+                      <div className="action-row">
+                        <button
+                          type="button"
+                          onClick={() => saveNextAction(task.id)}
+                          disabled={isSaving}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingTaskId(null);
+                            setNextActionDrafts((current) => ({
+                              ...current,
+                              [task.id]: task.nextAction
+                            }));
+                          }}
+                          disabled={isSaving}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="tag-row">
                     {getTagNames(task.tagIds).map((tag) => (
                       <TagPill key={tag} label={tag} />
@@ -278,10 +348,17 @@ export function TasksScreen() {
                   </div>
                 </div>
                 <div className="task-row-meta">
+                  <button
+                    type="button"
+                    onClick={() => startEditingNextAction(task.id, task.nextAction)}
+                    disabled={isSaving}
+                  >
+                    {task.nextAction ? "Edit next action" : "Add next action"}
+                  </button>
                   {task.dueDate ? <span>Due soon</span> : null}
                   {task.githubLink ? <span>GitHub #{task.githubLink.issueNumber}</span> : null}
                 </div>
-              </Link>
+              </article>
             ))
           ) : (
             <div className="empty-card">

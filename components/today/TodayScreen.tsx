@@ -27,16 +27,20 @@ export function TodayScreen() {
     todayPlan,
     isSaving,
     setLens,
+    refresh,
     addTodayFeedback,
     dismissFromToday,
     setTaskStatus,
     addComment,
+    updateTask,
     getAreaName,
     getListName,
     getTagNames
   } = useAppState();
   const [feedback, setFeedback] = useState("");
   const [commentForTask, setCommentForTask] = useState<Record<string, string>>({});
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [nextActionDrafts, setNextActionDrafts] = useState<Record<string, string>>({});
 
   const grouped = useMemo(() => {
     return todayPlan.items.reduce<Record<string, typeof todayPlan.items>>((acc, item) => {
@@ -48,8 +52,28 @@ export function TodayScreen() {
 
   async function handleFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await addTodayFeedback(feedback);
+    if (feedback.trim()) {
+      await addTodayFeedback(feedback);
+    } else {
+      await refresh();
+    }
     setFeedback("");
+  }
+
+  async function saveNextAction(taskId: string) {
+    const task = state.tasks.find((entry) => entry.id === taskId);
+    if (!task) return;
+
+    await updateTask({
+      taskId,
+      title: task.title,
+      description: task.description,
+      nextAction: nextActionDrafts[taskId] ?? "",
+      areaId: task.areaId,
+      listId: task.listId,
+      tagIds: task.tagIds
+    });
+    setEditingTaskId(null);
   }
 
   return (
@@ -75,8 +99,12 @@ export function TodayScreen() {
       <section className="panel">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Lens</p>
-            <h3>Reframe the day</h3>
+            <p className="eyebrow">Plan Controls</p>
+            <h3>Refresh or add optional emphasis</h3>
+            <p className="muted-copy">
+              Refresh rebuilds Today using your latest task changes. Lenses are optional
+              emphasis, not required input.
+            </p>
           </div>
           <div className="lens-select-wrap">
             <label className="sr-only" htmlFor="lens-select">
@@ -114,11 +142,11 @@ export function TodayScreen() {
           <input
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
-            placeholder='Steer Today: "Need easier wins this morning"'
+            placeholder='Optional steering note: "Bias toward easier wins this morning"'
             disabled={isSaving}
           />
           <button type="submit" disabled={isSaving}>
-            {isSaving ? "Updating..." : "Regenerate"}
+            {isSaving ? "Refreshing..." : "Refresh plan"}
           </button>
         </form>
       </section>
@@ -150,8 +178,52 @@ export function TodayScreen() {
                       {getAreaName(task.areaId)}
                       {task.listId ? ` > ${getListName(task.listId)}` : ""}
                     </p>
+                    <p className="task-path">
+                      Score {item.score.toFixed(1)}
+                      {item.analysisSource ? ` · ${item.analysisSource} analysis` : ""}
+                    </p>
                     <p className="task-reason">{item.reason}</p>
-                    <p className="task-description">{task.description}</p>
+                    <p className="task-next-action">
+                      <strong>Next Action:</strong>{" "}
+                      {task.nextAction || "No next action yet."}
+                    </p>
+                    {editingTaskId === task.id ? (
+                      <div className="inline-edit-row">
+                        <input
+                          value={nextActionDrafts[task.id] ?? ""}
+                          onChange={(event) =>
+                            setNextActionDrafts((current) => ({
+                              ...current,
+                              [task.id]: event.target.value
+                            }))
+                          }
+                          placeholder="Define the next concrete step..."
+                          disabled={isSaving}
+                        />
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            onClick={() => saveNextAction(task.id)}
+                            disabled={isSaving}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTaskId(null);
+                              setNextActionDrafts((current) => ({
+                                ...current,
+                                [task.id]: task.nextAction
+                              }));
+                            }}
+                            disabled={isSaving}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="tag-row">
                       {getTagNames(task.tagIds).map((tag) => (
                         <TagPill key={tag} label={tag} />
@@ -160,6 +232,19 @@ export function TodayScreen() {
                       {task.recurrenceLabel ? <TagPill label={task.recurrenceLabel} /> : null}
                     </div>
                     <div className="action-row">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingTaskId(task.id);
+                          setNextActionDrafts((current) => ({
+                            ...current,
+                            [task.id]: current[task.id] ?? task.nextAction
+                          }));
+                        }}
+                        disabled={isSaving}
+                      >
+                        {task.nextAction ? "Edit next action" : "Add next action"}
+                      </button>
                       {task.status !== "done" ? (
                         <button type="button" onClick={() => setTaskStatus(task.id, "done")} disabled={isSaving}>
                           Mark done

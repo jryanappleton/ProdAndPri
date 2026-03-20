@@ -22,7 +22,9 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
     aiOperation,
     setTaskStatus,
     toggleSubtask,
+    updateSubtask,
     addComment,
+    generateTaskDescription,
     analyzeTask,
     applyTaskAnalysis,
     updateTask,
@@ -37,9 +39,13 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
   const [isEditing, setIsEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [nextActionDraft, setNextActionDraft] = useState("");
   const [areaDraft, setAreaDraft] = useState("");
   const [listDraft, setListDraft] = useState("");
+  const [tagDrafts, setTagDrafts] = useState<string[]>([]);
   const [githubRepositoryId, setGitHubRepositoryId] = useState("");
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
 
   if (!task) notFound();
   const currentTask = task;
@@ -47,14 +53,23 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
     aiOperation.taskId === currentTask.id && aiOperation.type === "analyze";
   const isAiApplying =
     aiOperation.taskId === currentTask.id && aiOperation.type === "apply";
-  const isAiBusy = isAiAnalyzing || isAiApplying;
+  const isAiDescribing =
+    aiOperation.taskId === currentTask.id && aiOperation.type === "describe";
+  const isAiBusy = isAiAnalyzing || isAiApplying || isAiDescribing;
 
   useEffect(() => {
     setTitleDraft(currentTask.title);
     setDescriptionDraft(currentTask.description);
+    setNextActionDraft(currentTask.nextAction);
     setAreaDraft(currentTask.areaId ?? "");
     setListDraft(currentTask.listId ?? "");
+    setTagDrafts(currentTask.tagIds);
     setGitHubRepositoryId(currentTask.githubLink?.repositoryId ?? "");
+    setSubtaskDrafts(
+      Object.fromEntries(
+        currentTask.subtasks.map((subtask) => [subtask.id, subtask.title])
+      )
+    );
   }, [currentTask]);
 
   const availableLists = useMemo(
@@ -78,8 +93,10 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
       taskId: currentTask.id,
       title: titleDraft,
       description: descriptionDraft,
+      nextAction: nextActionDraft,
       areaId: areaDraft || null,
-      listId: listDraft || null
+      listId: listDraft || null,
+      tagIds: tagDrafts
     });
     setIsEditing(false);
   }
@@ -89,6 +106,11 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
     if (!confirmed) return;
     await deleteTask(currentTask.id);
     router.push("/tasks");
+  }
+
+  async function saveSubtaskTitle(subtaskId: string) {
+    await updateSubtask(currentTask.id, subtaskId, subtaskDrafts[subtaskId] ?? "");
+    setEditingSubtaskId(null);
   }
 
   return (
@@ -101,6 +123,9 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           </div>
           <StatusBadge status={currentTask.status} />
         </div>
+        <p className="detail-next-action">
+          {currentTask.nextAction || "No next action yet."}
+        </p>
         <p className="detail-description">{currentTask.description || "No notes yet."}</p>
         <p className="task-path">
           {getAreaName(currentTask.areaId)}
@@ -144,6 +169,13 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           ) : null}
           <button
             type="button"
+            onClick={() => generateTaskDescription(currentTask.id)}
+            disabled={isSaving}
+          >
+            {isAiDescribing ? "Generating description..." : "Generate description"}
+          </button>
+          <button
+            type="button"
             onClick={() => analyzeTask(currentTask.id)}
             disabled={isSaving || !currentTask.analysis.isEligible}
           >
@@ -181,6 +213,15 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
               <input
                 value={titleDraft}
                 onChange={(event) => setTitleDraft(event.target.value)}
+                disabled={isSaving}
+              />
+            </label>
+            <label className="field-block">
+              <span>Next action</span>
+              <input
+                value={nextActionDraft}
+                onChange={(event) => setNextActionDraft(event.target.value)}
+                placeholder="Define the next concrete step..."
                 disabled={isSaving}
               />
             </label>
@@ -232,6 +273,35 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
                 </select>
               </label>
             </div>
+            <label className="field-block">
+              <span>Tags</span>
+              {state.tags.length ? (
+                <div className="tag-row">
+                  {state.tags.map((tag) => {
+                    const selected = tagDrafts.includes(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        className={selected ? "lens-chip active" : "lens-chip"}
+                        onClick={() =>
+                          setTagDrafts((current) =>
+                            current.includes(tag.id)
+                              ? current.filter((id) => id !== tag.id)
+                              : [...current, tag.id]
+                          )
+                        }
+                        disabled={isSaving}
+                      >
+                        {tag.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="muted-copy">No tags exist yet. Create one in Settings.</p>
+              )}
+            </label>
             {requiresList && !listDraft ? (
               <p className="muted-copy">Choose a list before saving placement.</p>
             ) : null}
@@ -245,8 +315,10 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
                   setIsEditing(false);
                   setTitleDraft(currentTask.title);
                   setDescriptionDraft(currentTask.description);
+                  setNextActionDraft(currentTask.nextAction);
                   setAreaDraft(currentTask.areaId ?? "");
                   setListDraft(currentTask.listId ?? "");
+                  setTagDrafts(currentTask.tagIds);
                 }}
                 disabled={isSaving}
               >
@@ -285,6 +357,8 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
               <p>
                 {isAiAnalyzing
                   ? "AI is reading the task history and building a sharper plan..."
+                  : isAiDescribing
+                    ? "AI is writing a tighter task description from the task history..."
                   : "Applying the AI recommendation..."}
               </p>
             </div>
@@ -293,6 +367,48 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
             <div className="task-card-stack">
               <article className="task-card">
                 <p>{currentTask.analysis.latest.summary}</p>
+                {currentTask.analysis.latest.recommendedNextAction ? (
+                  <>
+                    <p className="eyebrow">Recommended next action</p>
+                    <div
+                      className={`suggestion-card ${
+                        currentTask.analysis.latest.recommendedNextAction.applied
+                          ? "accepted"
+                          : "suggested"
+                      }`}
+                    >
+                      <div>
+                        <strong>{currentTask.analysis.latest.recommendedNextAction.value}</strong>
+                        <p>
+                          {currentTask.nextAction
+                            ? "This would replace the task's current next action."
+                            : "This would add a task-level next action."}
+                        </p>
+                      </div>
+                      <div className="action-row">
+                        <button
+                          type="button"
+                          disabled={
+                            isSaving ||
+                            currentTask.analysis.latest.recommendedNextAction.applied
+                          }
+                          onClick={() =>
+                            applyTaskAnalysis(currentTask.id, "task_next_action")
+                          }
+                        >
+                          {isAiApplying &&
+                          !currentTask.analysis.latest.recommendedNextAction.applied
+                            ? "Applying..."
+                            : currentTask.analysis.latest.recommendedNextAction.applied
+                              ? "Applied"
+                              : currentTask.nextAction
+                                ? "Replace next action"
+                                : "Save next action"}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
                 {currentTask.analysis.latest.gaps.length ? (
                   <>
                     <p className="eyebrow">Gaps</p>
@@ -427,15 +543,69 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           {currentTask.subtasks.length ? (
             <div className="checklist">
               {currentTask.subtasks.map((subtask) => (
-                <label key={subtask.id} className="check-row">
+                <div key={subtask.id} className="check-row check-row-card">
                   <input
                     type="checkbox"
                     checked={subtask.isDone}
                     onChange={() => toggleSubtask(currentTask.id, subtask.id)}
                     disabled={isSaving}
                   />
-                  <span>{subtask.title}</span>
-                </label>
+                  <div className="subtask-content">
+                    <div className="subtask-header">
+                      {editingSubtaskId === subtask.id ? (
+                        <input
+                          value={subtaskDrafts[subtask.id] ?? ""}
+                          onChange={(event) =>
+                            setSubtaskDrafts((current) => ({
+                              ...current,
+                              [subtask.id]: event.target.value
+                            }))
+                          }
+                          disabled={isSaving}
+                        />
+                      ) : (
+                        <span>{subtask.title}</span>
+                      )}
+                      {currentTask.nextActionSubtaskId === subtask.id ? (
+                        <TagPill label="Active next action" />
+                      ) : null}
+                    </div>
+                    <div className="action-row">
+                      {editingSubtaskId === subtask.id ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => saveSubtaskTitle(subtask.id)}
+                            disabled={isSaving}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingSubtaskId(null);
+                              setSubtaskDrafts((current) => ({
+                                ...current,
+                                [subtask.id]: subtask.title
+                              }));
+                            }}
+                            disabled={isSaving}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEditingSubtaskId(subtask.id)}
+                          disabled={isSaving}
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
@@ -568,6 +738,14 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           <div>
             <dt>List</dt>
             <dd>{getListName(currentTask.listId)}</dd>
+          </div>
+          <div>
+            <dt>Tags</dt>
+            <dd>
+              {getTagNames(currentTask.tagIds).length
+                ? getTagNames(currentTask.tagIds).join(", ")
+                : "None"}
+            </dd>
           </div>
           <div>
             <dt>Recurrence</dt>

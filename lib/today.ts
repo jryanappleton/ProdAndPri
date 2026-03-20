@@ -113,7 +113,14 @@ export function generateTodayPlan(state: AppState, lens: TodayLens): TodayPlan {
       taskId: task.id,
       groupKey,
       reason: reasonForTask(task, lens),
-      score
+      score,
+      scoreBreakdown: {
+        weightedSignals: {},
+        deterministicModifiers: {},
+        confidenceMultiplier: 1
+      },
+      analysisGeneratedAt: null,
+      analysisSource: null
     };
   });
 

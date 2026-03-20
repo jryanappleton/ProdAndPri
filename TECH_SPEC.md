@@ -222,6 +222,7 @@ For `v1.1`, mirror this model in typed frontend fixtures and mock service contra
 - `title`
 - `normalizedTitle`
 - `description` nullable text
+- `nextAction` nullable text
 - `status` enum: `open | waiting_on | done`
 - `priorityOverride` nullable smallint
 - `dueDate` nullable timestamp
@@ -857,7 +858,7 @@ Components:
 - lens selector
 - feedback input
 - grouped recommendation sections
-- task cards with supporting reason text and quick actions
+- task cards with supporting reason text, visible next action, and quick actions
 - regenerate action
 
 ### All Tasks
@@ -867,7 +868,7 @@ Components:
 - hierarchy sidebar for areas/lists
 - search bar
 - filter bar
-- task table or list
+- task table or list with inline next-action editing
 - links into dedicated task detail pages
 - inline area/list creation
 - drag-and-drop list reassignment via the hierarchy rail

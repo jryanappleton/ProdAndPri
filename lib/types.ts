@@ -75,6 +75,10 @@ export interface TaskAnalysisQuestion {
 
 export interface TaskAnalysisResult {
   summary: string;
+  recommendedNextAction: {
+    value: string;
+    applied: boolean;
+  } | null;
   improvedTask: {
     title: string;
     description: string;
@@ -96,6 +100,38 @@ export interface TaskAnalysisState {
   latest: TaskAnalysisResult | null;
   lastRunSource: "ai" | "fallback" | null;
   lastRunMessage: string | null;
+}
+
+export interface TodayTaskAnalysisDimensions {
+  revenue: number;
+  unblock: number;
+  strategic: number;
+  admin: number;
+  quick_win: number;
+  deep_work: number;
+  urgency: number;
+  complexity: number;
+  confidence: number;
+}
+
+export interface TodayTaskAnalysisRationale {
+  revenue: string;
+  unblock: string;
+  strategic: string;
+  admin: string;
+  quick_win: string;
+  deep_work: string;
+  urgency: string;
+  complexity: string;
+}
+
+export interface TodayTaskAnalysis {
+  summary: string;
+  dimensions: TodayTaskAnalysisDimensions;
+  rationale: TodayTaskAnalysisRationale;
+  analyzedAt: string;
+  source: "ai" | "fallback";
+  version: number;
 }
 
 export interface GitHubLink {
@@ -127,6 +163,8 @@ export interface Task {
   id: string;
   title: string;
   description: string;
+  nextAction: string;
+  nextActionSubtaskId: string | null;
   status: TaskStatus;
   source: TaskSource;
   areaId: string | null;
@@ -144,6 +182,7 @@ export interface Task {
   activity: TaskActivity[];
   suggestions: TaskSuggestion[];
   analysis: TaskAnalysisState;
+  todayAnalysis: TodayTaskAnalysis | null;
   completedAt: string | null;
   lastWorkedAt: string | null;
   createdAt: string;
@@ -172,6 +211,13 @@ export interface TodayPlanItem {
   groupKey: "highest_leverage" | "quick_wins" | "waiting_follow_up";
   reason: string;
   score: number;
+  scoreBreakdown: {
+    weightedSignals: Record<string, number>;
+    deterministicModifiers: Record<string, number>;
+    confidenceMultiplier: number;
+  };
+  analysisGeneratedAt: string | null;
+  analysisSource: "ai" | "fallback" | null;
 }
 
 export interface TodayPlan {

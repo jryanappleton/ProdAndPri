@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { deleteTask, updateTask } from "@/lib/server/app-state";
-import { dataJson, errorJson } from "@/lib/server/http";
+import { bootstrapJson, dataJson, errorJson } from "@/lib/server/http";
+import { TodayLens } from "@/lib/types";
 
 export async function PATCH(
   request: NextRequest,
@@ -11,19 +12,24 @@ export async function PATCH(
     const body = (await request.json()) as {
       title: string;
       description: string;
+      nextAction: string;
       areaId: string | null;
       listId: string | null;
+      tagIds: string[];
+      lens?: TodayLens;
     };
 
-    const task = await updateTask({
+    await updateTask({
       taskId,
       title: body.title,
       description: body.description,
+      nextAction: body.nextAction,
       areaId: body.areaId,
-      listId: body.listId
+      listId: body.listId,
+      tagIds: body.tagIds
     });
 
-    return dataJson({ task });
+    return await bootstrapJson(body.lens);
   } catch (error) {
     return errorJson(error);
   }

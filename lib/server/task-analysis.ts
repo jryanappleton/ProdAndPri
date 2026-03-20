@@ -20,6 +20,7 @@ function clampText(value: unknown, maxLength: number, fallback = "") {
 
 const aiTaskAnalysisOutputSchema = z.object({
   summary: z.string().trim().min(1).max(1000),
+  recommendedNextAction: z.string().trim().min(1).max(500).nullable().optional(),
   improvedTask: z
     .object({
       title: z.string().trim().min(1).max(500),
@@ -113,6 +114,15 @@ export function parseStoredTaskAnalysis(
     const parsed = JSON.parse(raw) as TaskAnalysisResult;
     return {
       summary: parsed.summary,
+      recommendedNextAction:
+        parsed.recommendedNextAction &&
+        typeof parsed.recommendedNextAction.value === "string" &&
+        parsed.recommendedNextAction.value.trim()
+          ? {
+              value: parsed.recommendedNextAction.value,
+              applied: Boolean(parsed.recommendedNextAction.applied)
+            }
+          : null,
       improvedTask: parsed.improvedTask
         ? {
             title: parsed.improvedTask.title,
@@ -195,6 +205,12 @@ export function normalizeTaskAnalysisOutput(
 ): TaskAnalysisResult {
   return {
     summary: output.summary,
+    recommendedNextAction: output.recommendedNextAction
+      ? {
+          value: output.recommendedNextAction,
+          applied: false
+        }
+      : null,
     improvedTask: output.improvedTask
       ? {
           ...output.improvedTask,
@@ -259,6 +275,7 @@ export function buildTaskAnalysisInput(task: TaskForAnalysis) {
       id: task.id,
       title: task.title,
       description: task.description ?? "",
+      nextAction: task.nextAction ?? "",
       status: task.status,
       area: task.area?.name ?? null,
       list: task.list?.name ?? null,
@@ -345,6 +362,9 @@ export function computeTaskAnalysisState(task: TaskForAnalysis) {
 export function formatAnalysisComment(result: TaskAnalysisResult) {
   const sections = [
     `AI insight: ${result.summary}`,
+    result.recommendedNextAction
+      ? `Recommended next action: ${result.recommendedNextAction.value}`
+      : null,
     result.gaps.length ? `Gaps: ${result.gaps.join(" | ")}` : null,
     result.blockers.length ? `Blockers: ${result.blockers.join(" | ")}` : null,
     result.nextSteps.length
@@ -364,6 +384,7 @@ export function formatAnalysisComment(result: TaskAnalysisResult) {
 export function validateAiTaskAnalysisOutput(raw: string) {
   const parsed = JSON.parse(raw) as {
     summary?: unknown;
+    recommendedNextAction?: unknown;
     improvedTask?: unknown;
     gaps?: unknown;
     blockers?: unknown;
@@ -379,6 +400,14 @@ export function validateAiTaskAnalysisOutput(raw: string) {
       1000,
       "This task can move forward with a clearer immediate action."
     ),
+    recommendedNextAction:
+      parsed.recommendedNextAction === null || parsed.recommendedNextAction === undefined
+        ? null
+        : clampText(
+            parsed.recommendedNextAction,
+            500,
+            "Define the most useful next action and make it explicit."
+          ),
     improvedTask:
       parsed.improvedTask && typeof parsed.improvedTask === "object"
         ? {

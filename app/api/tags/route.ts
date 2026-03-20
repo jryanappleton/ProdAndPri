@@ -1,19 +1,16 @@
 import { NextRequest } from "next/server";
-import { addComment } from "@/lib/server/app-state";
+import { createTag } from "@/lib/server/app-state";
 import { bootstrapJson, errorJson } from "@/lib/server/http";
 import { TodayLens } from "@/lib/types";
 
-export async function POST(
-  request: NextRequest,
-  context: { params: Promise<{ taskId: string }> }
-) {
+export async function POST(request: NextRequest) {
   try {
-    const { taskId } = await context.params;
     const body = (await request.json()) as {
-      body: string;
+      name: string;
       lens?: TodayLens;
     };
-    await addComment(taskId, body.body);
+
+    await createTag(body.name);
     return await bootstrapJson(body.lens);
   } catch (error) {
     return errorJson(error);

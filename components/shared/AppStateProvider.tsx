@@ -32,7 +32,7 @@ interface AppUiContextValue {
   isSaving: boolean;
   aiOperation: {
     taskId: string | null;
-    type: "analyze" | "apply" | null;
+    type: "analyze" | "apply" | "describe" | null;
   };
 }
 
@@ -41,11 +41,13 @@ interface AppActionsContextValue {
   createVoiceCapture: () => Promise<void>;
   setTaskStatus: (taskId: string, status: Task["status"]) => Promise<void>;
   toggleSubtask: (taskId: string, subtaskId: string) => Promise<void>;
+  updateSubtask: (taskId: string, subtaskId: string, title: string) => Promise<void>;
   addComment: (taskId: string, body: string) => Promise<void>;
+  generateTaskDescription: (taskId: string) => Promise<void>;
   analyzeTask: (taskId: string) => Promise<void>;
   applyTaskAnalysis: (
     taskId: string,
-    action: "next_step" | "suggested_note" | "improved_task",
+    action: "task_next_action" | "next_step" | "suggested_note" | "improved_task",
     itemId?: string
   ) => Promise<void>;
   applySuggestion: (taskId: string, suggestionId: string) => Promise<void>;
@@ -60,6 +62,7 @@ interface AppActionsContextValue {
   createGitHubIssueForTask: (taskId: string, repositoryId: string) => Promise<void>;
   createArea: (name: string) => Promise<void>;
   createList: (areaId: string, name: string) => Promise<void>;
+  createTag: (name: string) => Promise<void>;
   deleteArea: (areaId: string) => Promise<void>;
   deleteList: (listId: string) => Promise<void>;
   updateTaskPlacement: (
@@ -71,8 +74,10 @@ interface AppActionsContextValue {
     taskId: string;
     title: string;
     description: string;
+    nextAction: string;
     areaId: string | null;
     listId: string | null;
+    tagIds: string[];
   }) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   fileTaskFromInbox: (
@@ -121,7 +126,7 @@ export function AppStateProvider({
   const [isSaving, setIsSaving] = useState(false);
   const [aiOperation, setAiOperation] = useState<{
     taskId: string | null;
-    type: "analyze" | "apply" | null;
+    type: "analyze" | "apply" | "describe" | null;
   }>({
     taskId: null,
     type: null
@@ -206,51 +211,87 @@ export function AppStateProvider({
   }, [payload.state.activeLens, replacePayload]);
 
   const setTaskStatus = useCallback(async (taskId: string, status: Task["status"]) => {
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/status`, {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status })
-      });
-      mergeTask(result.task);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [mergeTask]);
+        body: JSON.stringify({
+          status,
+          lens: payload.state.activeLens
+        })
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const toggleSubtask = useCallback(async (taskId: string, subtaskId: string) => {
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ task: Task }>(
-        `/api/tasks/${taskId}/subtasks/${subtaskId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({})
-        }
-      );
-      mergeTask(result.task);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [mergeTask]);
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          lens: payload.state.activeLens
+        })
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
+
+  const updateSubtask = useCallback(async (
+    taskId: string,
+    subtaskId: string,
+    title: string
+  ) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: trimmed,
+          lens: payload.state.activeLens
+        })
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const addComment = useCallback(async (taskId: string, body: string) => {
     const trimmed = body.trim();
     if (!trimmed) return;
 
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/comments`, {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/comments`, {
         method: "POST",
         body: JSON.stringify({
-          body: trimmed
+          body: trimmed,
+          lens: payload.state.activeLens
+        })
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
+
+  const generateTaskDescription = useCallback(async (taskId: string) => {
+    setAiOperation({
+      taskId,
+      type: "describe"
+    });
+    setIsSaving(true);
+
+    try {
+      const result = await apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/description`, {
+        method: "POST",
+        body: JSON.stringify({
+          lens: payload.state.activeLens
         })
       });
-      mergeTask(result.task);
+      startTransition(() => {
+        setPayload(result);
+      });
     } finally {
       setIsSaving(false);
+      setAiOperation({
+        taskId: null,
+        type: null
+      });
     }
-  }, [mergeTask]);
+  }, [payload.state.activeLens]);
 
   const analyzeTask = useCallback(async (taskId: string) => {
     setAiOperation({
@@ -276,7 +317,7 @@ export function AppStateProvider({
 
   const applyTaskAnalysis = useCallback(async (
     taskId: string,
-    action: "next_step" | "suggested_note" | "improved_task",
+    action: "task_next_action" | "next_step" | "suggested_note" | "improved_task",
     itemId?: string
   ) => {
     setAiOperation({
@@ -286,14 +327,14 @@ export function AppStateProvider({
     setIsSaving(true);
 
     try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/analysis/apply`, {
+      await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/analysis/apply`, {
         method: "POST",
         body: JSON.stringify({
           action,
           itemId
         })
       });
-      mergeTask(result.task);
+      await refreshForLens();
     } finally {
       setIsSaving(false);
       setAiOperation({
@@ -301,7 +342,7 @@ export function AppStateProvider({
         type: null
       });
     }
-  }, [mergeTask]);
+  }, [refreshForLens]);
 
   const applySuggestion = useCallback(async (taskId: string, suggestionId: string) => {
     setIsSaving(true);
@@ -461,17 +502,17 @@ export function AppStateProvider({
   const createGitHubIssueForTask = useCallback(async (taskId: string, repositoryId: string) => {
     setIsSaving(true);
     try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/github`, {
+      await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/github`, {
         method: "POST",
         body: JSON.stringify({
           repositoryId
         })
       });
-      mergeTask(result.task);
+      await refreshForLens();
     } finally {
       setIsSaving(false);
     }
-  }, [mergeTask]);
+  }, [refreshForLens]);
 
   const createArea = useCallback(async (name: string) => {
     const trimmed = name.trim();
@@ -497,6 +538,21 @@ export function AppStateProvider({
         method: "POST",
         body: JSON.stringify({
           areaId,
+          name: trimmed,
+          lens: payload.state.activeLens
+        })
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
+
+  const createTag = useCallback(async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    await replacePayload(
+      apiRequest<BootstrapPayload>("/api/tags", {
+        method: "POST",
+        body: JSON.stringify({
           name: trimmed,
           lens: payload.state.activeLens
         })
@@ -531,39 +587,37 @@ export function AppStateProvider({
     areaId: string | null,
     listId: string | null
   ) => {
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/placement`, {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/placement`, {
         method: "PATCH",
         body: JSON.stringify({
           areaId,
-          listId
+          listId,
+          lens: payload.state.activeLens
         })
-      });
-      mergeTask(result.task);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [mergeTask]);
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const updateTask = useCallback(async (input: {
     taskId: string;
     title: string;
     description: string;
+    nextAction: string;
     areaId: string | null;
     listId: string | null;
+    tagIds: string[];
   }) => {
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ task: Task }>(`/api/tasks/${input.taskId}`, {
+    await replacePayload(
+      apiRequest<BootstrapPayload>(`/api/tasks/${input.taskId}`, {
         method: "PATCH",
-        body: JSON.stringify(input)
-      });
-      mergeTask(result.task);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [mergeTask]);
+        body: JSON.stringify({
+          ...input,
+          lens: payload.state.activeLens
+        })
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     setIsSaving(true);
@@ -609,31 +663,17 @@ export function AppStateProvider({
     key: keyof AppState["preferences"],
     value: number | TodayLens
   ) => {
-    setIsSaving(true);
-    try {
-      const result = await apiRequest<{ preferences: AppState["preferences"] }>("/api/preferences", {
+    await replacePayload(
+      apiRequest<BootstrapPayload>("/api/preferences", {
         method: "PATCH",
         body: JSON.stringify({
           key,
-          value
+          value,
+          lens: key === "defaultLens" ? (value as TodayLens) : payload.state.activeLens
         })
-      });
-
-      patchPayload((current) => ({
-        ...current,
-        state: {
-          ...current.state,
-          preferences: result.preferences
-        }
-      }));
-
-      if (key === "defaultLens") {
-        await refreshForLens(value as TodayLens);
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  }, [patchPayload, refreshForLens]);
+      })
+    );
+  }, [payload.state.activeLens, replacePayload]);
 
   const getAreaName = useCallback((areaId: string | null) => {
     if (!areaId) return "Inbox";
@@ -670,7 +710,9 @@ export function AppStateProvider({
     createVoiceCapture,
     setTaskStatus,
     toggleSubtask,
+    updateSubtask,
     addComment,
+    generateTaskDescription,
     analyzeTask,
     applyTaskAnalysis,
     applySuggestion,
@@ -685,6 +727,7 @@ export function AppStateProvider({
     createGitHubIssueForTask,
     createArea,
     createList,
+    createTag,
     deleteArea,
     deleteList,
     updateTaskPlacement,
@@ -697,12 +740,14 @@ export function AppStateProvider({
     addComment,
     addGitHubRepository,
     addTodayFeedback,
+    generateTaskDescription,
     analyzeTask,
     applySuggestion,
     applyTaskAnalysis,
     createArea,
     createGitHubIssueForTask,
     createList,
+    createTag,
     deleteArea,
     deleteList,
     createTask,
@@ -718,6 +763,7 @@ export function AppStateProvider({
     syncGithubIssues,
     toggleGithubConnected,
     toggleSubtask,
+    updateSubtask,
     updatePreferences,
     updateTask,
     updateTaskPlacement
