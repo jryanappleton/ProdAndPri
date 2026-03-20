@@ -79,6 +79,7 @@ The product is not just a bucket for raw tasks. It needs to convert rough though
 - As a user, I want to accept multiple compatible suggestions before filing a task so triage feels cumulative rather than jumpy.
 - As a user, I want the task to stay in Inbox until I explicitly file it so suggestion acceptance does not feel like a hidden move.
 - As a user, I want vague tasks to be clarified into a next action when needed so projects do not stall in ambiguity.
+- As a user, I want an accepted next action to also exist as one checklist item so I can complete that concrete step directly.
 - As a user, I want subtasks suggested for larger work so I can break complex items into something workable.
 
 ### Success indicators
@@ -126,6 +127,7 @@ This is the core promise of the product. The app is meant to help the user choos
 - Today feels valuable even with mocked recommendations
 - the grouping and card structure support quick scanning
 - the briefing, lens controls, and recommendation reasons feel coherent together
+- each task card shows a clearly labeled next action instead of unlabeled supporting text
 
 ## 4.4 Use Case: Reframe the day when context changes
 
@@ -172,6 +174,7 @@ If everyday task updates are slow, the app becomes stale and Today loses accurac
 - As a user, I want to mark a task as waiting on someone or something so I do not lose track of blocked work.
 - As a user, I want to add comments or notes in context so task history captures what changed.
 - As a user, I want to complete subtasks as I go so larger tasks still feel manageable.
+- As a user, I want completing the checklist item that represents the active next action to clear that next action so I know it is finished.
 - As a user, I want quick actions from Today so I do not need to navigate away to keep the system current.
 - As a user, I do not want the UI to offer redundant actions for the status I am already in.
 
@@ -180,6 +183,7 @@ If everyday task updates are slow, the app becomes stale and Today loses accurac
 - task updates feel immediate and low-effort
 - task state stays current enough to support prioritization
 - progress tracking does not interrupt work
+- next-action state stays truthful when the linked checklist item is edited or completed
 
 ### `v1.1` validation focus
 
@@ -203,6 +207,7 @@ The user needs a broader control surface beyond Today. Without a trustworthy sys
 - As a user, I want to create areas and lists directly in the app so I can shape the system around my real work.
 - As a user, I want to search and filter across status, tags, area, and list so I can find what I need quickly.
 - As a user, I want to inspect task details, comments, subtasks, and history so I can understand the full state of work.
+- As a user, I want to edit the active next action either from the task itself or by renaming its linked checklist item so both views stay consistent.
 - As a user, I want to drag a task onto another list so reorganizing work feels direct and fast.
 - As a user, I want All Tasks to feel clear and orderly so I trust it as my source of truth.
 
@@ -217,6 +222,7 @@ The user needs a broader control surface beyond Today. Without a trustworthy sys
 - hierarchy rail and task list structure make sense
 - search/filter placement feels natural
 - task detail pages feel authoritative and easy to work in
+- All Tasks rows make the immediate next step easy to scan
 
 ### Current implementation notes
 
@@ -237,6 +243,7 @@ One of the product's biggest jobs is preventing meaningful projects from quietly
 
 - As a user, I want stale or neglected work surfaced so it does not disappear behind easier tasks.
 - As a user, I want the system to suggest next steps when a project has lost momentum so I can restart movement.
+- As a user, I want that suggested next step to become the task's active checklist-backed next action when I accept it.
 - As a user, I want blocker and follow-up signals to influence Today without dominating it.
 - As a user, I want waiting-on items to reappear when follow-up is probably needed so important loops do not die silently.
 
@@ -354,6 +361,7 @@ The user must be able to move from a brief recommendation or row into a reliable
 - As a user, I want to see summary, hierarchy placement, status, subtasks, comments, and history together so I do not have to piece together state from multiple screens.
 - As a user, I want task details to stay structured and readable so the page supports action rather than turning into a cluttered note dump.
 - As a user, I want to edit placement, title, and notes from the detail page so I can correct tasks after capture.
+- As a user, I want the active next action called out clearly in the checklist so I know which checklist item is my current focus.
 - As a user, I want to delete a task from the detail page when it should not remain in the system.
 
 ### Success indicators

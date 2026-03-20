@@ -223,6 +223,7 @@ For `v1.1`, mirror this model in typed frontend fixtures and mock service contra
 - `normalizedTitle`
 - `description` nullable text
 - `nextAction` nullable text
+- `nextActionSubtaskId` nullable string
 - `status` enum: `open | waiting_on | done`
 - `priorityOverride` nullable smallint
 - `dueDate` nullable timestamp
@@ -247,6 +248,13 @@ For `v1.1`, mirror this model in typed frontend fixtures and mock service contra
 - `position`
 - `createdAt`
 - `updatedAt`
+
+Behavior notes:
+
+- a task may point at one active linked subtask through `nextActionSubtaskId`
+- while that link exists, the task's `nextAction` and the linked subtask title should stay in sync
+- completing the linked subtask clears both `nextAction` and `nextActionSubtaskId`
+- reopening a previously completed linked subtask does not restore the task's active next action
 
 ### `task_comments`
 
@@ -290,6 +298,7 @@ Purpose:
 - `classification` jsonb
 - `clarificationSuggestion` jsonb
 - `subtaskSuggestion` jsonb
+- `taskNextActionSuggestion` jsonb
 - `nextStepSuggestion` jsonb
 - `stalenessSignals` jsonb
 - `lastAnalyzedAt`
@@ -607,6 +616,7 @@ Reasons:
 - include workspace taxonomy: areas, lists, high-signal tags
 - prefer suggestion outputs rather than silent mutation
 - preserve user wording when not necessary to rewrite
+- when suggesting a primary next step, return a dedicated task-level next-action suggestion separately from broader subtask suggestions
 
 ### Model split recommendation
 
@@ -633,6 +643,8 @@ User enters free-form text in Inbox or quick-add.
    - likely tags
    - actionable vs non-actionable
 5. show suggestions in UI without forcing acceptance
+
+If the user later accepts a staged next-action suggestion during Inbox filing, persist it onto the task and create the linked next-action subtask in the same write.
 
 ### Important rule
 
@@ -701,6 +713,8 @@ For recurring tasks, V1 should reopen the same task record and append an activit
 ### Technical choice
 
 The current implementation uses straightforward text matching on task title and description combined with relational status, area, and list filters in the app state layer.
+
+Search should also include `nextAction` so active execution text is discoverable from All Tasks.
 
 This is sufficient for the single-user local app and keeps the UX fast while avoiding premature search infrastructure.
 
@@ -822,6 +836,7 @@ Prefer shared server services behind route handlers so UI mutations and integrat
 - change status
 - add comment
 - add subtask
+- update subtask title
 - reorder subtasks
 - dismiss from Today
 - regenerate Today
@@ -858,7 +873,7 @@ Components:
 - lens selector
 - feedback input
 - grouped recommendation sections
-- task cards with supporting reason text, visible next action, and quick actions
+- task cards with supporting reason text, a labeled `Next Action:` line, and quick actions
 - regenerate action
 
 ### All Tasks
@@ -887,6 +902,10 @@ Behavior:
 - staged AI suggestions
 - explicit `File task` action that commits accepted suggestions and placement
 
+Behavior:
+
+- if a staged next-action suggestion is accepted at filing time, filing should create or repair the task's linked next-action subtask
+
 ### Task Detail
 
 Components:
@@ -897,9 +916,14 @@ Components:
 - notes/comments
 - task history
 - GitHub context when linked
-- edit controls for title, description, and placement
+- edit controls for title, description, next action, and placement
 - delete action
 - repository selector and create-issue action when GitHub is configured
+
+Behavior:
+
+- the active next-action subtask should be visually identifiable in the checklist
+- renaming the linked next-action subtask updates the task's `nextAction`
 
 ### Settings
 
@@ -949,10 +973,12 @@ In `v1.1`, task history should be seeded and update in-memory through the mock d
 - task created
 - title edited
 - description edited
+- next action edited
 - status changed
 - due date changed
 - moved between area/list
 - comment added
+- linked next-action subtask completed and cleared
 - GitHub link added
 - GitHub sync updated metadata
 - recurring task advanced

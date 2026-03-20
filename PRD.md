@@ -121,11 +121,11 @@ A sub-container within an area representing a workstream, focus area, or project
 
 #### Task
 
-A unit of work that can be completed or advanced.
+A unit of work that can be completed or advanced. A task may also carry one active next action, shown prominently on task cards for quick scanning.
 
 #### Subtask
 
-A smaller actionable unit inside a task.
+A smaller actionable unit inside a task. When a task has an active next action, the system should maintain one linked subtask representing that same step.
 
 #### Notes / Comments
 
@@ -157,6 +157,7 @@ The user should be able to quickly enter rough, imperfect thoughts. The system s
 - identify whether the item is actionable  
 - suggest a likely area or list  
 - suggest tags  
+- suggest a task-level next action when useful  
 - propose subtasks if helpful  
 
 The user should be able to accept multiple compatible suggestions before explicitly filing the task out of Inbox.
@@ -192,6 +193,7 @@ As the user works, they should be able to:
 - mark a task as waiting on someone or something  
 - return tasks to open  
 - complete subtasks  
+- complete the active next-action subtask and have the task's current next action clear automatically  
 - ask AI to refresh priorities based on new information  
 
 ### 8.4 Manage All Tasks
@@ -246,6 +248,7 @@ The app is not responsible for replacing full GitHub workflows.
 - area  
 - list  
 - description / notes  
+- next action  
 - tags  
 - due date  
 - recurrence settings  
@@ -304,6 +307,8 @@ AI should suggest:
 
 AI should help rewrite vague items into clearer next actions when useful.
 
+If the user accepts a suggested next action, the task should store it directly and the system should maintain a matching linked subtask.
+
 #### 10.4 Subtask Suggestions
 
 AI should propose subtasks for larger or ambiguous tasks.
@@ -311,6 +316,8 @@ AI should propose subtasks for larger or ambiguous tasks.
 #### 10.5 Next-Step Suggestions
 
 AI should help identify the next concrete step needed to move a task or project forward.
+
+That primary next step should be treated as the task's active next action, distinct from broader optional subtask breakdowns.
 
 #### 10.6 Blocker Detection
 
@@ -370,6 +377,7 @@ The Today view should include:
 - short AI-generated briefing  
 - grouped recommendations  
 - reason labels or explanations for each recommendation  
+- a clearly labeled `Next Action:` line on each task card  
 - quick actions for each task  
 - regenerate or reframe controls  
 
@@ -406,6 +414,7 @@ The user should be able to:
 - search and filter by tag, status, area, or list  
 - inspect task details  
 - edit tasks  
+- edit the active next action directly  
 - add subtasks  
 - view done history  
 - identify waiting-on items  

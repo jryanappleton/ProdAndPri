@@ -370,6 +370,7 @@ Primary Today recommendation surface.
 - task title
 - hierarchy path
 - reason it matters
+- labeled `Next Action:` text
 - key metadata
 - immediate actions
 
@@ -403,6 +404,7 @@ Primary row pattern for All Tasks.
 - title
 - status
 - area/list context
+- labeled `Next Action:` text
 - due or recurrence indicator if present
 
 ### States
@@ -558,6 +560,7 @@ Display and update subtasks inside detail views.
 - list of subtasks
 - completion state
 - add action
+- inline rename support for existing subtasks
 
 ### States
 
@@ -739,7 +742,7 @@ Every Today card should prominently show:
 
 - title
 - reason summary
-- next action
+- a labeled `Next Action:` line
 - minimal supporting metadata
 - quick actions
 
@@ -797,6 +800,7 @@ Task detail should still primarily resolve to a dedicated page model.
 - higher information density than Today, but still balanced
 - statuses should be visually distinct without flooding rows with strong color
 - area/list placement should read as quiet hierarchy text, not a row of pills
+- the row's supporting text should favor the labeled next action over the longer description
 
 ### Interaction additions
 
@@ -822,6 +826,7 @@ Inbox is for rough entry and early triage.
 - show AI suggestions as proposals, not edits already applied
 - let users accept compatible suggestions across multiple fields before filing the task
 - keep accepted suggestions visible in a staged-changes block until the user explicitly files the task
+- when a next-action suggestion is accepted for filing, show it as the task's pending labeled next action rather than generic description text
 
 ### Suggest-only behavior
 
@@ -867,6 +872,8 @@ Desktop may still use linked detail panels in specific flows if that does not we
 - optional fields should not dominate the page
 - deletion should exist, but remain secondary and clearly destructive
 - status actions should only show meaningful next transitions, not the current state repeated
+- the active next action should be editable directly on the task and reflected in one visually identified linked checklist item
+- editing that linked checklist item should keep the task's active next action in sync
 
 ## 7.5 Settings
 
