@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { AnalysisFreshness } from "@/lib/types";
 import { useAppState } from "@/components/shared/AppStateProvider";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TagPill } from "@/components/shared/TagPill";
+import { TaskAiChatPanel } from "@/components/tasks/TaskAiChatPanel";
 
 function getFreshnessLabel(freshness: AnalysisFreshness) {
   if (freshness === "never_analyzed") return "Never analyzed";
@@ -21,6 +22,8 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
     isSaving,
     aiOperation,
     setTaskStatus,
+    createSubtask,
+    setSubtaskAsNextAction,
     toggleSubtask,
     updateSubtask,
     addComment,
@@ -46,6 +49,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
   const [githubRepositoryId, setGitHubRepositoryId] = useState("");
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
 
   if (!task) notFound();
   const currentTask = task;
@@ -57,7 +61,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
     aiOperation.taskId === currentTask.id && aiOperation.type === "describe";
   const isAiBusy = isAiAnalyzing || isAiApplying || isAiDescribing;
 
-  useEffect(() => {
+  function syncDraftsFromTask() {
     setTitleDraft(currentTask.title);
     setDescriptionDraft(currentTask.description);
     setNextActionDraft(currentTask.nextAction);
@@ -70,7 +74,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
         currentTask.subtasks.map((subtask) => [subtask.id, subtask.title])
       )
     );
-  }, [currentTask]);
+  }
 
   const availableLists = useMemo(
     () => state.lists.filter((list) => list.areaId === areaDraft),
@@ -111,6 +115,12 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
   async function saveSubtaskTitle(subtaskId: string) {
     await updateSubtask(currentTask.id, subtaskId, subtaskDrafts[subtaskId] ?? "");
     setEditingSubtaskId(null);
+  }
+
+  async function submitNewSubtask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createSubtask(currentTask.id, newSubtaskTitle);
+    setNewSubtaskTitle("");
   }
 
   return (
@@ -185,7 +195,16 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
                 ? "Refresh insight"
                 : "Analyze task"}
           </button>
-          <button type="button" onClick={() => setIsEditing((current) => !current)} disabled={isSaving}>
+          <button
+            type="button"
+            onClick={() => {
+              if (!isEditing) {
+                syncDraftsFromTask();
+              }
+              setIsEditing((current) => !current);
+            }}
+            disabled={isSaving}
+          >
             {isEditing ? "Close edit" : "Edit task"}
           </button>
           <button
@@ -313,12 +332,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
                 type="button"
                 onClick={() => {
                   setIsEditing(false);
-                  setTitleDraft(currentTask.title);
-                  setDescriptionDraft(currentTask.description);
-                  setNextActionDraft(currentTask.nextAction);
-                  setAreaDraft(currentTask.areaId ?? "");
-                  setListDraft(currentTask.listId ?? "");
-                  setTagDrafts(currentTask.tagIds);
+                  syncDraftsFromTask();
                 }}
                 disabled={isSaving}
               >
@@ -533,6 +547,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
             </div>
           )}
         </section>
+        <TaskAiChatPanel task={currentTask} />
         <section className="panel">
           <div className="panel-header">
             <div>
@@ -540,6 +555,17 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
               <h3>Breakdown</h3>
             </div>
           </div>
+          <form className="subtask-create-form" onSubmit={submitNewSubtask}>
+            <input
+              value={newSubtaskTitle}
+              onChange={(event) => setNewSubtaskTitle(event.target.value)}
+              placeholder="Add a subtask..."
+              disabled={isSaving}
+            />
+            <button type="submit" disabled={isSaving || !newSubtaskTitle.trim()}>
+              Add subtask
+            </button>
+          </form>
           {currentTask.subtasks.length ? (
             <div className="checklist">
               {currentTask.subtasks.map((subtask) => (
@@ -595,13 +621,28 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
                           </button>
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => setEditingSubtaskId(subtask.id)}
-                          disabled={isSaving}
-                        >
-                          Edit
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubtaskId(subtask.id)}
+                            disabled={isSaving}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSubtaskAsNextAction(currentTask.id, subtask.id)}
+                            disabled={
+                              isSaving ||
+                              subtask.isDone ||
+                              currentTask.nextActionSubtaskId === subtask.id
+                            }
+                          >
+                            {currentTask.nextActionSubtaskId === subtask.id
+                              ? "Active next action"
+                              : "Make next action"}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

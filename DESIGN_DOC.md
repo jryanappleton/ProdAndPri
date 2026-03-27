@@ -759,6 +759,8 @@ Supporting metadata can include:
 - marking waiting-on should allow a short follow-up note
 - dismissing should remove clutter without feeling destructive
 - regeneration should show visible but lightweight progress
+- Today regeneration copy should clearly say the app is waiting on AI
+- ordinary task saves elsewhere should not borrow the Today regeneration loading state
 
 ### Feedback input
 

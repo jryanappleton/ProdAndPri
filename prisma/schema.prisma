@@ -71,6 +71,12 @@ enum ImportSourceType {
   json
 }
 
+enum TaskChatMessageRole {
+  user
+  assistant
+  system
+}
+
 enum ImportStatus {
   uploaded
   parsing
@@ -168,6 +174,7 @@ model Task {
   comments          TaskComment[]
   activities        TaskActivity[]
   aiState           TaskAiState?
+  taskChat          TaskChat?
   taskTags          TaskTag[]
   todayItems        TodayPlanItem[]
   importRows        ImportRow[]
@@ -234,6 +241,29 @@ model TaskAiState {
   todayClassification     String?
   todayMeta               String?
   todayAnalyzedAt         DateTime?
+}
+
+model TaskChat {
+  id                   String            @id @default(cuid())
+  taskId                String            @unique
+  task                  Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  openAiConversationId String?
+  draftJson             String?
+  draftGeneratedAt      DateTime?
+  resetCount            Int               @default(0)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  messages              TaskChatMessage[]
+}
+
+model TaskChatMessage {
+  id              String              @id @default(cuid())
+  taskChatId      String
+  taskChat        TaskChat            @relation(fields: [taskChatId], references: [id], onDelete: Cascade)
+  role            TaskChatMessageRole
+  body            String
+  openAiResponseId String?
+  createdAt       DateTime            @default(now())
 }
 
 model TodayPlan {

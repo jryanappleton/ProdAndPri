@@ -14,6 +14,7 @@ import {
   TaskAnalysisOutput,
   validateAiTaskAnalysisOutput
 } from "@/lib/server/task-analysis";
+import { validateTaskChatDraft, validateTaskChatReply } from "@/lib/server/task-chat";
 
 interface SuggestionOption {
   label: string;
@@ -41,6 +42,33 @@ function normalizeSuggestions(items: SuggestionOption[]) {
     id: randomUUID(),
     state: "suggested" as const
   }));
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isConversationLockedError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    "code" in error &&
+    (error as Error & { code?: string }).code === "conversation_locked"
+  );
+}
+
+export async function createTaskChatConversation(metadata: Record<string, string>) {
+  const openAi = getClient();
+  if (!openAi) {
+    return null;
+  }
+
+  const conversation = await openAi.conversations.create({
+    metadata
+  });
+  return conversation.id;
 }
 
 export async function suggestTaskUpdates(input: {
@@ -491,5 +519,277 @@ export async function analyzeTaskForExecution(input: object) {
         message: fallbackMessage
       } satisfies TaskAnalysisMeta
     };
+  }
+}
+
+function buildFallbackTaskChatReply(input: {
+  userMessage: string;
+  task: {
+    title: string;
+    nextAction: string;
+    tags: string[];
+  };
+}) {
+  const summary = [
+    input.task.nextAction ? `Current next action: ${input.task.nextAction}.` : "",
+    input.task.tags.length ? `Current tags: ${input.task.tags.join(", ")}.` : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    replyText: [
+      `AI chat is unavailable right now, so I can't brainstorm this task in depth.`,
+      `Task: ${input.task.title}.`,
+      summary,
+      `Your message was: "${input.userMessage.trim()}".`
+    ]
+      .filter(Boolean)
+      .join(" ")
+  };
+}
+
+function buildFallbackTaskChatDraft(input: {
+  task: {
+    title: string;
+    description: string;
+    nextAction: string;
+    tags: string[];
+  };
+  transcript: Array<{ role: string; body: string }>;
+}) {
+  const latestUserMessage =
+    [...input.transcript].reverse().find((entry) => entry.role === "user")?.body ??
+    `Improve the task "${input.task.title}".`;
+
+  return {
+    summary:
+      "This draft captures the most likely task updates based on the conversation so far. Review each section before saving it.",
+    nextAction: {
+      value:
+        input.task.nextAction ||
+        `Decide on the single next concrete move for "${input.task.title}".`,
+      applied: false
+    },
+    description: {
+      value:
+        input.task.description ||
+        `Capture the goal, the most promising idea from the conversation, and what needs to happen next for "${input.task.title}".`,
+      applied: false
+    },
+    notes: [
+      {
+        id: randomUUID(),
+        body: `Conversation summary: ${latestUserMessage}`,
+        applied: false
+      }
+    ],
+    subtasks: [
+      {
+        id: randomUUID(),
+        title: `Turn the strongest idea from the chat into a concrete first step for "${input.task.title}".`,
+        applied: false
+      }
+    ],
+    tags: input.task.tags.map((name) => ({
+      id: randomUUID(),
+      tagId: "",
+      name,
+      applied: false
+    })),
+    generatedAt: null
+  };
+}
+
+export async function continueTaskChat(input: {
+  conversationId: string | null;
+  userMessage: string;
+  taskSnapshot: object;
+}) {
+  const openAi = getClient();
+  if (!openAi || !input.conversationId) {
+    return {
+      output: buildFallbackTaskChatReply({
+        userMessage: input.userMessage,
+        task: {
+          title:
+            (input.taskSnapshot as { task?: { title?: string } }).task?.title ?? "this task",
+          nextAction:
+            (input.taskSnapshot as { task?: { nextAction?: string } }).task?.nextAction ?? "",
+          tags:
+            (input.taskSnapshot as { task?: { tags?: string[] } }).task?.tags ?? []
+        }
+      }),
+      responseId: null
+    };
+  }
+
+  try {
+    const createResponse = () =>
+      openAi.responses.create({
+        model: env.openAiTodayModel,
+        store: true,
+        conversation: input.conversationId,
+        input: [
+          {
+            role: "system",
+            content:
+              `You are an AI collaborator inside a task detail page for a personal productivity app.
+
+Help the user think through the task, clarify it, spot blockers, suggest next actions, draft notes, propose subtasks, rewrite the description, and suggest useful existing tags.
+
+Rules:
+- The human stays in control.
+- Never say you already changed the task.
+- Use only the supplied task snapshot and the user's message.
+- Keep the reply practical, natural, and low-jargon.
+- Treat this as a real conversation, not as a form-filling task update flow.
+- Ask a follow-up question when the user is still exploring.
+- Do not turn every reply into a list of task edits.
+- Return JSON only in the exact schema requested.
+
+Schema:
+{
+  "replyText": "plain-language reply"
+}`
+          },
+          {
+            role: "user",
+            content: `Task snapshot:\n${JSON.stringify(input.taskSnapshot, null, 2)}\n\nUser message:\n${input.userMessage.trim()}`
+          }
+        ]
+      });
+
+    let response;
+    try {
+      response = await createResponse();
+    } catch (error) {
+      if (!isConversationLockedError(error)) {
+        throw error;
+      }
+
+      await sleep(1500);
+      response = await createResponse();
+    }
+
+    return {
+      output: validateTaskChatReply(response.output_text || "{}"),
+      responseId: response.id
+    };
+  } catch (error) {
+    console.warn("Falling back to deterministic task chat reply.", error);
+    return {
+      output: buildFallbackTaskChatReply({
+        userMessage: input.userMessage,
+        task: {
+          title:
+            (input.taskSnapshot as { task?: { title?: string } }).task?.title ?? "this task",
+          nextAction:
+            (input.taskSnapshot as { task?: { nextAction?: string } }).task?.nextAction ?? "",
+          tags:
+            (input.taskSnapshot as { task?: { tags?: string[] } }).task?.tags ?? []
+        }
+      }),
+      responseId: null
+    };
+  }
+}
+
+export async function generateTaskChatDraft(input: {
+  conversationId: string | null;
+  taskSnapshot: object;
+  transcript: Array<{ role: string; body: string }>;
+}) {
+  const openAi = getClient();
+  if (!openAi || !input.conversationId) {
+    return buildFallbackTaskChatDraft({
+      task: {
+        title:
+          (input.taskSnapshot as { task?: { title?: string } }).task?.title ?? "this task",
+        description:
+          (input.taskSnapshot as { task?: { description?: string } }).task?.description ?? "",
+        nextAction:
+          (input.taskSnapshot as { task?: { nextAction?: string } }).task?.nextAction ?? "",
+        tags:
+          (input.taskSnapshot as { task?: { tags?: string[] } }).task?.tags ?? []
+      },
+      transcript: input.transcript
+    });
+  }
+
+  try {
+    const createResponse = () =>
+      openAi.responses.create({
+        model: env.openAiTodayModel,
+        store: true,
+        conversation: input.conversationId,
+        input: [
+          {
+            role: "system",
+            content:
+              `You are converting a brainstorming conversation about a task into a reviewable task draft.
+
+Use the full task snapshot and the conversation transcript to synthesize what should be saved back into the task.
+
+Rules:
+- Return a draft, not a conversational reply.
+- Only use tags that appear in the provided available tags list.
+- The draft should reflect the latest state of the conversation, not early ideas that were abandoned.
+- Keep each subtask concrete and short.
+- Notes should be worth saving on the task.
+- Leave fields null or empty when the conversation does not support a confident proposal.
+- Return JSON only.
+
+Schema:
+{
+  "summary": "brief explanation of how the conversation improved the task",
+  "nextAction": "optional task-level next action or null",
+  "description": "optional improved task description or null",
+  "notes": ["optional notes to save"],
+  "subtasks": ["optional subtasks"],
+  "tags": [
+    {
+      "tagId": "optional existing tag id",
+      "name": "existing tag name"
+    }
+  ]
+}`
+          },
+          {
+            role: "user",
+            content:
+              `Task snapshot:\n${JSON.stringify(input.taskSnapshot, null, 2)}\n\nConversation transcript:\n${JSON.stringify(input.transcript, null, 2)}`
+          }
+        ]
+      });
+
+    let response;
+    try {
+      response = await createResponse();
+    } catch (error) {
+      if (!isConversationLockedError(error)) {
+        throw error;
+      }
+
+      await sleep(1500);
+      response = await createResponse();
+    }
+
+    return validateTaskChatDraft(response.output_text || "{}");
+  } catch (error) {
+    console.warn("Falling back to deterministic task chat draft.", error);
+    return buildFallbackTaskChatDraft({
+      task: {
+        title:
+          (input.taskSnapshot as { task?: { title?: string } }).task?.title ?? "this task",
+        description:
+          (input.taskSnapshot as { task?: { description?: string } }).task?.description ?? "",
+        nextAction:
+          (input.taskSnapshot as { task?: { nextAction?: string } }).task?.nextAction ?? "",
+        tags:
+          (input.taskSnapshot as { task?: { tags?: string[] } }).task?.tags ?? []
+      },
+      transcript: input.transcript
+    });
   }
 }

@@ -145,12 +145,14 @@ The user's work changes dynamically. The product needs to stay useful as context
 - As a user, I want to give lightweight feedback like "need easier wins" so Today can adapt without becoming a full chat workflow.
 - As a user, I want regeneration to feel quick and reversible so I can explore alternate plans without losing trust.
 - As a user, I want my settings to shape the default plan so the app reflects my working style over time.
+- As a user, I want Today refresh to be explicit so normal task edits do not unexpectedly make me wait on AI.
 
 ### Success indicators
 
 - the user feels the system listens to context
 - Today can adapt without becoming noisy or complex
 - changing lenses feels like steering, not resetting everything
+- the user can tell when the app is waiting on AI versus when a normal save has already finished
 
 ### `v1.1` validation focus
 
@@ -177,6 +179,7 @@ If everyday task updates are slow, the app becomes stale and Today loses accurac
 - As a user, I want completing the checklist item that represents the active next action to clear that next action so I know it is finished.
 - As a user, I want quick actions from Today so I do not need to navigate away to keep the system current.
 - As a user, I do not want the UI to offer redundant actions for the status I am already in.
+- As a user, I want ordinary saves to complete immediately even if Today has not been refreshed yet.
 
 ### Success indicators
 

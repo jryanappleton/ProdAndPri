@@ -48,7 +48,7 @@ export function TodayScreen() {
       acc[key] = [...(acc[key] ?? []), item];
       return acc;
     }, {});
-  }, [todayPlan.items]);
+  }, [todayPlan]);
 
   async function handleFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -146,9 +146,14 @@ export function TodayScreen() {
             disabled={isSaving}
           />
           <button type="submit" disabled={isSaving}>
-            {isSaving ? "Refreshing..." : "Refresh plan"}
+            {isSaving ? "Refreshing with AI..." : "Refresh plan"}
           </button>
         </form>
+        {isSaving ? (
+          <p className="muted-copy">
+            Updating Today from your latest task changes. This is the part that waits on AI.
+          </p>
+        ) : null}
       </section>
 
       <div className="today-grid">

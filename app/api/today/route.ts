@@ -23,7 +23,10 @@ export async function POST(request: NextRequest) {
       await dismissTaskFromToday(body.taskId, body.lens);
     }
 
-    return await bootstrapJson(body.lens);
+    return await bootstrapJson({
+      lens: body.lens,
+      refreshToday: body.action === "feedback"
+    });
   } catch (error) {
     return errorJson(error);
   }

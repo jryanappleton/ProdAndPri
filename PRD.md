@@ -184,6 +184,8 @@ The system should support different prioritization lenses or modes, including:
 
 The user should be able to adjust preferences in settings and also regenerate Today with a different view.
 
+The visible Today plan may remain cached after ordinary task edits. Regeneration should happen when the user explicitly refreshes Today or changes the Today lens.
+
 ### 8.3 Update Tasks During the Day
 
 As the user works, they should be able to:
@@ -195,6 +197,8 @@ As the user works, they should be able to:
 - complete subtasks  
 - complete the active next-action subtask and have the task's current next action clear automatically  
 - ask AI to refresh priorities based on new information  
+
+Routine task updates should stay fast and should not require waiting on Today regeneration unless the user explicitly requests it.
 
 ### 8.4 Manage All Tasks
 

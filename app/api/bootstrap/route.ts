@@ -5,7 +5,11 @@ import { TodayLens } from "@/lib/types";
 export async function GET(request: NextRequest) {
   try {
     const lens = request.nextUrl.searchParams.get("lens") as TodayLens | null;
-    return await bootstrapJson(lens ?? undefined);
+    const refreshToday = request.nextUrl.searchParams.get("refreshToday") === "1";
+    return await bootstrapJson({
+      lens: lens ?? undefined,
+      refreshToday
+    });
   } catch (error) {
     return errorJson(error);
   }

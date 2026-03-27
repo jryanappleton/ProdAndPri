@@ -13,6 +13,7 @@ import {
   AppState,
   BootstrapPayload,
   IntegrationStatus,
+  TaskChat,
   Task,
   TaskSource,
   TodayLens,
@@ -23,6 +24,7 @@ interface AppDataContextValue {
   state: AppState;
   todayPlan: TodayPlan;
   integrations: IntegrationStatus;
+  taskChats: Record<string, TaskChat | undefined>;
   getAreaName: (areaId: string | null) => string;
   getListName: (listId: string | null) => string;
   getTagNames: (tagIds: string[]) => string[];
@@ -32,7 +34,16 @@ interface AppUiContextValue {
   isSaving: boolean;
   aiOperation: {
     taskId: string | null;
-    type: "analyze" | "apply" | "describe" | null;
+    type:
+      | "analyze"
+      | "apply"
+      | "describe"
+      | "chat_send"
+      | "chat_convert"
+      | "chat_apply"
+      | "chat_reset"
+      | "chat_dismiss_draft"
+      | null;
   };
 }
 
@@ -40,9 +51,21 @@ interface AppActionsContextValue {
   createTask: (title: string, source?: TaskSource) => Promise<void>;
   createVoiceCapture: () => Promise<void>;
   setTaskStatus: (taskId: string, status: Task["status"]) => Promise<void>;
+  createSubtask: (taskId: string, title: string) => Promise<void>;
+  setSubtaskAsNextAction: (taskId: string, subtaskId: string) => Promise<void>;
   toggleSubtask: (taskId: string, subtaskId: string) => Promise<void>;
   updateSubtask: (taskId: string, subtaskId: string, title: string) => Promise<void>;
   addComment: (taskId: string, body: string) => Promise<void>;
+  loadTaskChat: (taskId: string) => Promise<void>;
+  sendTaskChatMessage: (taskId: string, body: string) => Promise<void>;
+  generateTaskChatDraft: (taskId: string) => Promise<void>;
+  resetTaskChat: (taskId: string) => Promise<void>;
+  dismissTaskChatDraft: (taskId: string) => Promise<void>;
+  applyTaskChatDraft: (
+    taskId: string,
+    action: "next_action" | "description" | "note" | "subtask" | "tag",
+    itemId?: string
+  ) => Promise<void>;
   generateTaskDescription: (taskId: string) => Promise<void>;
   analyzeTask: (taskId: string) => Promise<void>;
   applyTaskAnalysis: (
@@ -123,10 +146,20 @@ export function AppStateProvider({
   initialPayload: BootstrapPayload;
 }) {
   const [payload, setPayload] = useState(initialPayload);
+  const [taskChats, setTaskChats] = useState<Record<string, TaskChat | undefined>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [aiOperation, setAiOperation] = useState<{
     taskId: string | null;
-    type: "analyze" | "apply" | "describe" | null;
+    type:
+      | "analyze"
+      | "apply"
+      | "describe"
+      | "chat_send"
+      | "chat_convert"
+      | "chat_apply"
+      | "chat_reset"
+      | "chat_dismiss_draft"
+      | null;
   }>({
     taskId: null,
     type: null
@@ -147,6 +180,15 @@ export function AppStateProvider({
   const patchPayload = useCallback((updater: (current: BootstrapPayload) => BootstrapPayload) => {
     startTransition(() => {
       setPayload((current) => updater(current));
+    });
+  }, []);
+
+  const mergeTaskChat = useCallback((chat: TaskChat) => {
+    startTransition(() => {
+      setTaskChats((current) => ({
+        ...current,
+        [chat.taskId]: chat
+      }));
     });
   }, []);
 
@@ -174,11 +216,22 @@ export function AppStateProvider({
     });
   }, [patchPayload]);
 
-  const refreshForLens = useCallback(async (lens = payload.state.activeLens) => {
+  const refreshBootstrap = useCallback(async (
+    lens = payload.state.activeLens,
+    refreshToday = false
+  ) => {
     await replacePayload(
-      apiRequest<BootstrapPayload>(`/api/bootstrap?lens=${encodeURIComponent(lens)}`)
+      apiRequest<BootstrapPayload>(
+        `/api/bootstrap?lens=${encodeURIComponent(lens)}${
+          refreshToday ? "&refreshToday=1" : ""
+        }`
+      )
     );
   }, [payload.state.activeLens, replacePayload]);
+
+  const refreshTodayPlan = useCallback(async (lens = payload.state.activeLens) => {
+    await refreshBootstrap(lens, true);
+  }, [payload.state.activeLens, refreshBootstrap]);
 
   const createTask = useCallback(async (title: string, source: TaskSource = "manual") => {
     const trimmed = title.trim();
@@ -222,16 +275,53 @@ export function AppStateProvider({
     );
   }, [payload.state.activeLens, replacePayload]);
 
+  const createSubtask = useCallback(async (taskId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+
+    setIsSaving(true);
+    try {
+      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/subtasks`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: trimmed
+        })
+      });
+      mergeTask(result.task);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [mergeTask]);
+
   const toggleSubtask = useCallback(async (taskId: string, subtaskId: string) => {
-    await replacePayload(
-      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+    setIsSaving(true);
+    try {
+      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
         method: "PATCH",
         body: JSON.stringify({
           lens: payload.state.activeLens
         })
-      })
-    );
-  }, [payload.state.activeLens, replacePayload]);
+      });
+      mergeTask(result.task);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [mergeTask, payload.state.activeLens]);
+
+  const setSubtaskAsNextAction = useCallback(async (taskId: string, subtaskId: string) => {
+    setIsSaving(true);
+    try {
+      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "set_next_action"
+        })
+      });
+      mergeTask(result.task);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [mergeTask]);
 
   const updateSubtask = useCallback(async (
     taskId: string,
@@ -241,16 +331,20 @@ export function AppStateProvider({
     const trimmed = title.trim();
     if (!trimmed) return;
 
-    await replacePayload(
-      apiRequest<BootstrapPayload>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+    setIsSaving(true);
+    try {
+      const result = await apiRequest<{ task: Task }>(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
         method: "PATCH",
         body: JSON.stringify({
           title: trimmed,
           lens: payload.state.activeLens
         })
-      })
-    );
-  }, [payload.state.activeLens, replacePayload]);
+      });
+      mergeTask(result.task);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [mergeTask, payload.state.activeLens]);
 
   const addComment = useCallback(async (taskId: string, body: string) => {
     const trimmed = body.trim();
@@ -266,6 +360,180 @@ export function AppStateProvider({
       })
     );
   }, [payload.state.activeLens, replacePayload]);
+
+  const loadTaskChat = useCallback(async (taskId: string) => {
+    const result = await apiRequest<{ chat: TaskChat }>(`/api/tasks/${taskId}/chat`);
+    mergeTaskChat(result.chat);
+  }, [mergeTaskChat]);
+
+  const sendTaskChatMessage = useCallback(async (taskId: string, body: string) => {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+
+    const optimisticMessage = {
+      id: `temp-user-${Date.now()}`,
+      role: "user" as const,
+      body: trimmed,
+      createdAt: new Date().toISOString()
+    };
+
+    startTransition(() => {
+      setTaskChats((current) => {
+        const existing = current[taskId] ?? {
+          taskId,
+          conversationId: null,
+          resetCount: 0,
+          createdAt: null,
+          updatedAt: null,
+          messages: [],
+          draft: null
+        };
+
+        return {
+          ...current,
+          [taskId]: {
+            ...existing,
+            messages: [...existing.messages, optimisticMessage]
+          }
+        };
+      });
+    });
+
+    setAiOperation({
+      taskId,
+      type: "chat_send"
+    });
+    setIsSaving(true);
+
+    try {
+      const result = await apiRequest<{ chat: TaskChat }>(`/api/tasks/${taskId}/chat`, {
+        method: "POST",
+        body: JSON.stringify({
+          body: trimmed
+        })
+      });
+      mergeTaskChat(result.chat);
+    } catch (error) {
+      startTransition(() => {
+        setTaskChats((current) => {
+          const existing = current[taskId];
+          if (!existing) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [taskId]: {
+              ...existing,
+              messages: existing.messages.filter((message) => message.id !== optimisticMessage.id)
+            }
+          };
+        });
+      });
+      throw error;
+    } finally {
+      setIsSaving(false);
+      setAiOperation({
+        taskId: null,
+        type: null
+      });
+    }
+  }, [mergeTaskChat]);
+
+  const generateTaskChatDraft = useCallback(async (taskId: string) => {
+    setAiOperation({
+      taskId,
+      type: "chat_convert"
+    });
+    setIsSaving(true);
+
+    try {
+      const result = await apiRequest<{ chat: TaskChat }>(`/api/tasks/${taskId}/chat/convert`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      mergeTaskChat(result.chat);
+    } finally {
+      setIsSaving(false);
+      setAiOperation({
+        taskId: null,
+        type: null
+      });
+    }
+  }, [mergeTaskChat]);
+
+  const resetTaskChat = useCallback(async (taskId: string) => {
+    setAiOperation({
+      taskId,
+      type: "chat_reset"
+    });
+    setIsSaving(true);
+
+    try {
+      const result = await apiRequest<{ chat: TaskChat }>(`/api/tasks/${taskId}/chat/reset`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      mergeTaskChat(result.chat);
+    } finally {
+      setIsSaving(false);
+      setAiOperation({
+        taskId: null,
+        type: null
+      });
+    }
+  }, [mergeTaskChat]);
+
+  const dismissTaskChatDraft = useCallback(async (taskId: string) => {
+    setAiOperation({
+      taskId,
+      type: "chat_dismiss_draft"
+    });
+    setIsSaving(true);
+
+    try {
+      const result = await apiRequest<{ chat: TaskChat }>(`/api/tasks/${taskId}/chat/draft`, {
+        method: "DELETE"
+      });
+      mergeTaskChat(result.chat);
+    } finally {
+      setIsSaving(false);
+      setAiOperation({
+        taskId: null,
+        type: null
+      });
+    }
+  }, [mergeTaskChat]);
+
+  const applyTaskChatDraft = useCallback(async (
+    taskId: string,
+    action: "next_action" | "description" | "note" | "subtask" | "tag",
+    itemId?: string
+  ) => {
+    setAiOperation({
+      taskId,
+      type: "chat_apply"
+    });
+    setIsSaving(true);
+
+    try {
+      const result = await apiRequest<{ chat: TaskChat; task: Task }>(`/api/tasks/${taskId}/chat/apply`, {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          itemId
+        })
+      });
+      mergeTask(result.task);
+      mergeTaskChat(result.chat);
+    } finally {
+      setIsSaving(false);
+      setAiOperation({
+        taskId: null,
+        type: null
+      });
+    }
+  }, [mergeTask, mergeTaskChat]);
 
   const generateTaskDescription = useCallback(async (taskId: string) => {
     setAiOperation({
@@ -334,7 +602,7 @@ export function AppStateProvider({
           itemId
         })
       });
-      await refreshForLens();
+      await refreshBootstrap();
     } finally {
       setIsSaving(false);
       setAiOperation({
@@ -342,7 +610,7 @@ export function AppStateProvider({
         type: null
       });
     }
-  }, [refreshForLens]);
+  }, [refreshBootstrap]);
 
   const applySuggestion = useCallback(async (taskId: string, suggestionId: string) => {
     setIsSaving(true);
@@ -381,8 +649,8 @@ export function AppStateProvider({
   }, [mergeTask]);
 
   const setLens = useCallback(async (lens: TodayLens) => {
-    await refreshForLens(lens);
-  }, [refreshForLens]);
+    await refreshTodayPlan(lens);
+  }, [refreshTodayPlan]);
 
   const addTodayFeedback = useCallback(async (body: string) => {
     const trimmed = body.trim();
@@ -508,11 +776,11 @@ export function AppStateProvider({
           repositoryId
         })
       });
-      await refreshForLens();
+      await refreshBootstrap();
     } finally {
       setIsSaving(false);
     }
-  }, [refreshForLens]);
+  }, [refreshBootstrap]);
 
   const createArea = useCallback(async (name: string) => {
     const trimmed = name.trim();
@@ -695,10 +963,11 @@ export function AppStateProvider({
     state: payload.state,
     todayPlan: payload.todayPlan,
     integrations: payload.integrations,
+    taskChats,
     getAreaName,
     getListName,
     getTagNames
-  }), [getAreaName, getListName, getTagNames, payload]);
+  }), [getAreaName, getListName, getTagNames, payload, taskChats]);
 
   const uiValue = useMemo<AppUiContextValue>(() => ({
     isSaving,
@@ -709,9 +978,17 @@ export function AppStateProvider({
     createTask,
     createVoiceCapture,
     setTaskStatus,
+    createSubtask,
+    setSubtaskAsNextAction,
     toggleSubtask,
     updateSubtask,
     addComment,
+    loadTaskChat,
+    sendTaskChatMessage,
+    generateTaskChatDraft,
+    resetTaskChat,
+    dismissTaskChatDraft,
+    applyTaskChatDraft,
     generateTaskDescription,
     analyzeTask,
     applyTaskAnalysis,
@@ -735,11 +1012,12 @@ export function AppStateProvider({
     deleteTask,
     fileTaskFromInbox,
     updatePreferences,
-    refresh: refreshForLens
+    refresh: refreshTodayPlan
   }), [
     addComment,
     addGitHubRepository,
     addTodayFeedback,
+    applyTaskChatDraft,
     generateTaskDescription,
     analyzeTask,
     applySuggestion,
@@ -752,21 +1030,28 @@ export function AppStateProvider({
     deleteList,
     createTask,
     createVoiceCapture,
+    createSubtask,
+    dismissTaskChatDraft,
+    generateTaskChatDraft,
+    loadTaskChat,
+    setSubtaskAsNextAction,
     deleteTask,
     dismissFromToday,
     fileTaskFromInbox,
     ignoreSuggestion,
     importSampleTasks,
-    refreshForLens,
+    refreshTodayPlan,
     setLens,
     setTaskStatus,
+    sendTaskChatMessage,
     syncGithubIssues,
     toggleGithubConnected,
     toggleSubtask,
     updateSubtask,
     updatePreferences,
     updateTask,
-    updateTaskPlacement
+    updateTaskPlacement,
+    resetTaskChat
   ]);
 
   return (

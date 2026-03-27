@@ -53,6 +53,57 @@ export interface TaskActivity {
   createdAt: string;
 }
 
+export interface TaskChatDraftNote {
+  id: string;
+  body: string;
+  applied: boolean;
+}
+
+export interface TaskChatDraftSubtask {
+  id: string;
+  title: string;
+  applied: boolean;
+}
+
+export interface TaskChatDraftTag {
+  id: string;
+  tagId: string;
+  name: string;
+  applied: boolean;
+}
+
+export interface TaskChatDraftField {
+  value: string;
+  applied: boolean;
+}
+
+export interface TaskChatDraft {
+  summary: string;
+  nextAction: TaskChatDraftField | null;
+  description: TaskChatDraftField | null;
+  notes: TaskChatDraftNote[];
+  subtasks: TaskChatDraftSubtask[];
+  tags: TaskChatDraftTag[];
+  generatedAt: string | null;
+}
+
+export interface TaskChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  body: string;
+  createdAt: string;
+}
+
+export interface TaskChat {
+  taskId: string;
+  conversationId: string | null;
+  resetCount: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+  messages: TaskChatMessage[];
+  draft: TaskChatDraft | null;
+}
+
 export interface TaskAnalysisNextStep {
   id: string;
   title: string;

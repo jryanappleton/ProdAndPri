@@ -30,6 +30,25 @@ export function TasksScreen() {
   const [dropListId, setDropListId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [nextActionDrafts, setNextActionDrafts] = useState<Record<string, string>>({});
+  const defaultExcludedTagId = useMemo(
+    () =>
+      state.tags.find((tag) => tag.name.trim().toLowerCase() === "lowpri - exclude from today")
+        ?.id ?? null,
+    [state.tags]
+  );
+  const [excludedTagIds, setExcludedTagIds] = useState<string[]>(() =>
+    defaultExcludedTagId ? [defaultExcludedTagId] : []
+  );
+  const [hasTouchedTagFilters, setHasTouchedTagFilters] = useState(false);
+  const effectiveExcludedTagIds = useMemo(() => {
+    if (hasTouchedTagFilters || !defaultExcludedTagId) {
+      return excludedTagIds;
+    }
+
+    return excludedTagIds.includes(defaultExcludedTagId)
+      ? excludedTagIds
+      : [...excludedTagIds, defaultExcludedTagId];
+  }, [defaultExcludedTagId, excludedTagIds, hasTouchedTagFilters]);
 
   const filteredTasks = useMemo(() => {
     return state.tasks.filter((task) => {
@@ -37,6 +56,7 @@ export function TasksScreen() {
       if (activeArea !== "all" && task.areaId !== activeArea) return false;
       if (activeList !== "all" && task.listId !== activeList) return false;
       if (activeStatus !== "all" && task.status !== activeStatus) return false;
+      if (effectiveExcludedTagIds.some((tagId) => task.tagIds.includes(tagId))) return false;
       if (
         query &&
         !`${task.title} ${task.nextAction} ${task.description}`
@@ -47,7 +67,7 @@ export function TasksScreen() {
       }
       return true;
     });
-  }, [activeArea, activeList, activeStatus, query, state.tasks]);
+  }, [activeArea, activeList, activeStatus, effectiveExcludedTagIds, query, state.tasks]);
 
   const activeListName =
     activeList === "all"
@@ -248,12 +268,41 @@ export function TasksScreen() {
         <div className="panel-header">
           <div>
             <p className="eyebrow">All Tasks</p>
-            <h3>System of record</h3>
+            <h3>System of record ({filteredTasks.length})</h3>
             {activeListName ? (
               <p className="muted-copy">Filtered to list: {activeListName}</p>
             ) : null}
           </div>
-          <span className="count-chip">{filteredTasks.length} visible</span>
+          <div className="tasks-filter-panel">
+            <p className="eyebrow">Exclude tags</p>
+            <div className="tag-row">
+              {state.tags.length ? (
+                state.tags.map((tag) => {
+                  const excluded = effectiveExcludedTagIds.includes(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      className={excluded ? "lens-chip active" : "lens-chip"}
+                      onClick={() => {
+                        setHasTouchedTagFilters(true);
+                        setExcludedTagIds((current) =>
+                          current.includes(tag.id)
+                            ? current.filter((id) => id !== tag.id)
+                            : [...current, tag.id]
+                        );
+                      }}
+                      disabled={isSaving}
+                    >
+                      {tag.name}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="count-chip">No tags</span>
+              )}
+            </div>
+          </div>
         </div>
         <div className="filter-row">
           <input
@@ -362,10 +411,11 @@ export function TasksScreen() {
             ))
           ) : (
             <div className="empty-card">
-              <h4>No tasks yet</h4>
+              <h4>{state.tasks.length ? "No tasks match these filters" : "No tasks yet"}</h4>
               <p>
-                Capture a few tasks, then organize them into the areas and lists you create
-                here.
+                {state.tasks.length
+                  ? "Try changing the search, status, area, list, or excluded tags."
+                  : "Capture a few tasks, then organize them into the areas and lists you create here."}
               </p>
             </div>
           )}

@@ -481,6 +481,13 @@ Today is not a raw query result. It is a generated plan with:
 - a lens
 - optional user context for regeneration
 
+The current app behavior is intentionally split into two paths:
+
+- ordinary task edits and hierarchy updates should return quickly without regenerating Today
+- Today regeneration happens only when the user explicitly refreshes from the Today screen or switches lenses there
+
+The bootstrap payload should therefore default to the latest persisted Today plan for the active date/lens and only invoke fresh Today generation when `refreshToday` is explicitly requested.
+
 ## 8.2 Generation pipeline
 
 Use a hybrid ranking pipeline:
@@ -579,10 +586,10 @@ Boost cleanup, follow-up, maintenance, and operational housekeeping.
 - only one `ready` Today plan per workspace/date/lens
 - regenerate when:
   - user explicitly requests it
-  - important task state changed since last generation
   - user adds Today-context feedback
-- stale detection can be simple in V1:
-  - compare `generatedAt` to most recent relevant task update
+- normal task edits do not regenerate Today in the request that saved them
+- task edits may make the persisted Today plan out of date until the next explicit refresh
+- stale detection can still be tracked in persistence or telemetry, but it should not force synchronous Today recomputation during ordinary task saves
 
 ## 9. AI Responsibilities and Service Design
 
@@ -876,6 +883,12 @@ Components:
 - task cards with supporting reason text, a labeled `Next Action:` line, and quick actions
 - regenerate action
 
+Behavior:
+
+- the page shows the most recently persisted Today plan for the active lens
+- pressing refresh or changing the lens triggers explicit Today regeneration
+- the loading copy should make it clear that this wait is the AI-backed planning step, not a normal save
+
 ### All Tasks
 
 Components:
@@ -936,13 +949,20 @@ Behavior:
 - server-render primary data
 - client components only where interactivity requires it
 - optimistic updates for quick task actions
-- invalidate Today plan after meaningful task updates
+- keep normal task mutations local and fast without forcing Today regeneration
+- refresh Today only from explicit Today actions
 
 ## 17. Background Job System
 
 This section is still the intended future shape for heavier async work, but it is not fully implemented in the current local app.
 
 Today regeneration, AI suggestions, import review, voice capture, and GitHub sync currently run through direct request/response flows and persisted state updates.
+
+Important current behavior:
+
+- task saves do not synchronously enqueue or run Today regeneration
+- Today refresh remains a dedicated request path initiated from the Today page
+- this keeps save latency tied to local persistence rather than to AI planning latency
 
 ### Required job types
 

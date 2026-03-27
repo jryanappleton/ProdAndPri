@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   CommentType,
   Prisma,
+  TaskChatMessageRole,
   TaskSourceType,
   TaskStatus,
   TodayGroupKey,
@@ -16,13 +17,20 @@ import {
   BootstrapPayload,
   Preferences,
   SuggestionState,
+  TaskChat,
+  TaskChatDraft,
+  TaskChatMessage,
   Task as ClientTask,
   TaskSuggestion,
   TaskList,
-  TodayLens as ClientTodayLens
+  TodayLens as ClientTodayLens,
+  TodayPlan as ClientTodayPlan
 } from "@/lib/types";
 import {
   analyzeTaskForExecution,
+  continueTaskChat,
+  createTaskChatConversation,
+  generateTaskChatDraft,
   generateTaskDescription,
   suggestTaskUpdates
 } from "@/lib/server/ai";
@@ -36,6 +44,10 @@ import {
   serializeTaskAnalysisMeta,
   serializeStoredTaskAnalysis
 } from "@/lib/server/task-analysis";
+import {
+  parseStoredTaskChatDraft,
+  serializeTaskChatDraft
+} from "@/lib/server/task-chat";
 import { parseStoredTodayTaskAnalysis } from "@/lib/server/today-analysis";
 import { generateTodayPlan } from "@/lib/server/today";
 
@@ -146,6 +158,18 @@ type TaskRecord = Prisma.TaskGetPayload<{
   include: typeof taskInclude;
 }>;
 
+const taskChatInclude = {
+  messages: {
+    orderBy: {
+      createdAt: "asc" as const
+    }
+  }
+} satisfies Prisma.TaskChatInclude;
+
+type TaskChatRecord = Prisma.TaskChatGetPayload<{
+  include: typeof taskChatInclude;
+}>;
+
 function startOfTodayUtc() {
   const date = new Date();
   date.setUTCHours(0, 0, 0, 0);
@@ -224,6 +248,65 @@ function mapPreferences(
   };
 }
 
+function formatTaskActivity(
+  task: TaskRecord,
+  activity: TaskRecord["activities"][number]
+) {
+  const currentAreaName = task.area?.name ?? "Inbox";
+  const currentListName = task.list?.name ?? null;
+  const currentPath = currentListName
+    ? `${currentAreaName} > ${currentListName}`
+    : currentAreaName;
+
+  switch (activity.eventType) {
+    case "task_captured":
+      return activity.payload ?? "Captured into Inbox";
+    case "task_filed":
+      return `Filed into ${currentPath}`;
+    case "task_placed":
+      return currentListName ? `Moved to ${currentPath}` : `Moved to ${currentAreaName}`;
+    case "task_updated":
+      return "Updated task details";
+    case "status_changed":
+      if (activity.payload === "done") return "Marked done";
+      if (activity.payload === "waiting on") return "Marked waiting on";
+      if (activity.payload === "open") return "Reopened task";
+      return "Updated task status";
+    case "subtask_added":
+      return activity.payload ? `Added subtask: ${activity.payload}` : "Added subtask";
+    case "subtask_updated":
+      return activity.payload ? `Renamed subtask: ${activity.payload}` : "Updated subtask";
+    case "subtask_toggled":
+      return activity.payload ? `Updated subtask: ${activity.payload}` : "Updated subtask";
+    case "subtask_next_action":
+      return activity.payload
+        ? `Set next action to: ${activity.payload}`
+        : "Updated active next action";
+    case "comment_added":
+      return "Added a note";
+    case "description_generated":
+      return "Generated a task description";
+    case "task_analyzed":
+      return "Generated an execution insight";
+    case "analysis_applied":
+      return activity.payload ?? "Applied an AI suggestion";
+    case "task_chat_applied":
+      return activity.payload ?? "Applied an AI chat suggestion";
+    case "suggestion_staged":
+      return activity.payload ? `Accepted suggestion: ${activity.payload}` : "Accepted suggestion";
+    case "task_imported":
+      return "Imported task";
+    case "github_issue_imported":
+      return activity.payload ? `Imported GitHub issue: ${activity.payload}` : "Imported GitHub issue";
+    case "github_issue_created":
+      return activity.payload ? `Created GitHub issue: ${activity.payload}` : "Created GitHub issue";
+    default:
+      return activity.payload
+        ? `${activity.eventType.replaceAll("_", " ")}: ${activity.payload}`
+        : activity.eventType.replaceAll("_", " ");
+  }
+}
+
 function mapTask(task: TaskRecord): ClientTask {
   return {
     id: task.id,
@@ -272,9 +355,7 @@ function mapTask(task: TaskRecord): ClientTask {
     })),
     activity: task.activities.map((activity) => ({
       id: activity.id,
-      body: activity.payload
-        ? `${activity.eventType.replaceAll("_", " ")}: ${activity.payload}`
-        : activity.eventType.replaceAll("_", " "),
+      body: formatTaskActivity(task, activity),
       createdAt: activity.createdAt.toISOString()
     })),
     suggestions: parseSuggestions(task.aiState?.classification),
@@ -288,6 +369,45 @@ function mapTask(task: TaskRecord): ClientTask {
     lastWorkedAt: task.lastWorkedAt?.toISOString() ?? null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString()
+  };
+}
+
+function emptyTaskChat(taskId: string): TaskChat {
+  return {
+    taskId,
+    conversationId: null,
+    resetCount: 0,
+    createdAt: null,
+    updatedAt: null,
+    messages: [],
+    draft: null
+  };
+}
+
+function mapTaskChatMessage(
+  message: TaskChatRecord["messages"][number]
+): TaskChatMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    body: message.body,
+    createdAt: message.createdAt.toISOString()
+  };
+}
+
+function mapTaskChat(taskId: string, chat: TaskChatRecord | null): TaskChat {
+  if (!chat) {
+    return emptyTaskChat(taskId);
+  }
+
+  return {
+    taskId,
+    conversationId: chat.openAiConversationId,
+    resetCount: chat.resetCount,
+    createdAt: chat.createdAt.toISOString(),
+    updatedAt: chat.updatedAt.toISOString(),
+    messages: chat.messages.map(mapTaskChatMessage),
+    draft: parseStoredTaskChatDraft(chat.draftJson)
   };
 }
 
@@ -354,17 +474,107 @@ async function getTaskRecord(taskId: string) {
   });
 }
 
+async function getTaskChatRecord(taskId: string) {
+  return prisma.taskChat.findUnique({
+    where: {
+      taskId
+    },
+    include: taskChatInclude
+  });
+}
+
 export async function getTaskSnapshot(taskId: string) {
   return mapTask(await getTaskRecord(taskId));
 }
 
+export async function getTaskChatSnapshot(taskId: string) {
+  return mapTaskChat(taskId, await getTaskChatRecord(taskId));
+}
+
+function parsePersistedScoreBreakdown(raw: string | null) {
+  if (!raw) {
+    return {
+      weightedSignals: {},
+      deterministicModifiers: {},
+      confidenceMultiplier: 1
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      weightedSignals?: Record<string, number>;
+      deterministicModifiers?: Record<string, number>;
+      confidenceMultiplier?: number;
+    };
+
+    return {
+      weightedSignals: parsed.weightedSignals ?? {},
+      deterministicModifiers: parsed.deterministicModifiers ?? {},
+      confidenceMultiplier:
+        typeof parsed.confidenceMultiplier === "number"
+          ? parsed.confidenceMultiplier
+          : 1
+    };
+  } catch {
+    return {
+      weightedSignals: {},
+      deterministicModifiers: {},
+      confidenceMultiplier: 1
+    };
+  }
+}
+
+function buildCachedTodayPlan(input: {
+  state: AppState;
+  existingPlan: Prisma.TodayPlanGetPayload<{
+    include: {
+      items: true;
+    };
+  }> | null;
+  lens: ClientTodayLens;
+}): ClientTodayPlan {
+  const { existingPlan, lens, state } = input;
+
+  if (!existingPlan) {
+    return {
+      lens,
+      briefing: "Refresh to build a Today plan from your latest task changes.",
+      items: []
+    };
+  }
+
+  return {
+    lens,
+    briefing: existingPlan.briefing,
+    items: existingPlan.items
+      .filter((item) => !item.dismissed)
+      .sort((left, right) => left.rank - right.rank)
+      .map((item) => {
+        const task = state.tasks.find((entry) => entry.id === item.taskId);
+
+        return {
+          taskId: item.taskId,
+          groupKey: item.groupKey as TodayGroupKey,
+          reason: item.reasonSummary,
+          score: item.finalScore,
+          scoreBreakdown: parsePersistedScoreBreakdown(item.reasonCodes),
+          analysisGeneratedAt: item.analysisGeneratedAt?.toISOString() ?? null,
+          analysisSource: task?.todayAnalysis?.source ?? null
+        };
+      })
+  };
+}
+
 export async function getBootstrapPayload(
-  lens?: ClientTodayLens
+  options?: {
+    lens?: ClientTodayLens;
+    refreshToday?: boolean;
+  }
 ): Promise<BootstrapPayload> {
   const workspace = await getWorkspaceRecord();
   const todayDate = startOfTodayUtc();
   const activeLens =
-    lens ??
+    options?.lens ??
     (workspace.preferences?.defaultLens as ClientTodayLens | undefined) ??
     "balanced";
   const state = mapWorkspaceToState(workspace, activeLens);
@@ -384,87 +594,97 @@ export async function getBootstrapPayload(
   state.dismissedToday = existingPlan?.items
     .filter((item) => item.dismissed)
     .map((item) => item.taskId) ?? [];
-  const todayPlan = await generateTodayPlan(workspace.id, state, activeLens);
-  const persistedTodayItems = [
-    ...todayPlan.items.map((item, index) => ({
-      taskId: item.taskId,
-      groupKey: item.groupKey as TodayGroupKey,
-      rank: index + 1,
-      reasonSummary: item.reason,
-      reasonCodes: JSON.stringify(item.scoreBreakdown),
-      finalScore: item.score,
-      dismissed: state.dismissedToday.includes(item.taskId),
-      analysisGeneratedAt: item.analysisGeneratedAt
-        ? new Date(item.analysisGeneratedAt)
-        : null
-    })),
-    ...state.dismissedToday
-      .filter((taskId) => !todayPlan.items.some((item) => item.taskId === taskId))
-      .map((taskId, index) => ({
-        taskId,
-        groupKey: "highest_leverage" as TodayGroupKey,
-        rank: todayPlan.items.length + index + 1,
-        reasonSummary: "Dismissed from Today.",
-        reasonCodes: null,
-        finalScore: -1,
-        dismissed: true,
-        analysisGeneratedAt: null
-      }))
-  ];
-
-  const persistedPlan = existingPlan
-    ? await prisma.todayPlan.update({
-        where: {
-          id: existingPlan.id
-        },
-        data: {
-          briefing: todayPlan.briefing,
-          status: TodayPlanStatus.ready,
-          generatedAt: new Date(),
-          items: {
-            deleteMany: {},
-            create: persistedTodayItems
-          }
-        },
-        include: {
-          items: true
-        }
-      })
-    : await prisma.todayPlan.upsert({
-        where: {
-          workspaceId_date_lens: {
-            workspaceId: workspace.id,
-            date: todayDate,
-            lens: activeLens
-          }
-        },
-        create: {
-          workspaceId: workspace.id,
-          date: todayDate,
-          lens: activeLens,
-          briefing: todayPlan.briefing,
-          status: TodayPlanStatus.ready,
-          items: {
-            create: persistedTodayItems
-          }
-        },
-        update: {
-          briefing: todayPlan.briefing,
-          status: TodayPlanStatus.ready,
-          generatedAt: new Date(),
-          items: {
-            deleteMany: {},
-            create: persistedTodayItems
-          }
-        },
-        include: {
-          items: true
-        }
+  const refreshToday = options?.refreshToday ?? false;
+  const todayPlan = refreshToday
+    ? await generateTodayPlan(workspace.id, state, activeLens)
+    : buildCachedTodayPlan({
+        state,
+        existingPlan,
+        lens: activeLens
       });
 
-  state.dismissedToday = persistedPlan.items
-    .filter((item) => item.dismissed)
-    .map((item) => item.taskId);
+  if (refreshToday) {
+    const persistedTodayItems = [
+      ...todayPlan.items.map((item, index) => ({
+        taskId: item.taskId,
+        groupKey: item.groupKey as TodayGroupKey,
+        rank: index + 1,
+        reasonSummary: item.reason,
+        reasonCodes: JSON.stringify(item.scoreBreakdown),
+        finalScore: item.score,
+        dismissed: state.dismissedToday.includes(item.taskId),
+        analysisGeneratedAt: item.analysisGeneratedAt
+          ? new Date(item.analysisGeneratedAt)
+          : null
+      })),
+      ...state.dismissedToday
+        .filter((taskId) => !todayPlan.items.some((item) => item.taskId === taskId))
+        .map((taskId, index) => ({
+          taskId,
+          groupKey: "highest_leverage" as TodayGroupKey,
+          rank: todayPlan.items.length + index + 1,
+          reasonSummary: "Dismissed from Today.",
+          reasonCodes: null,
+          finalScore: -1,
+          dismissed: true,
+          analysisGeneratedAt: null
+        }))
+    ];
+
+    const persistedPlan = existingPlan
+      ? await prisma.todayPlan.update({
+          where: {
+            id: existingPlan.id
+          },
+          data: {
+            briefing: todayPlan.briefing,
+            status: TodayPlanStatus.ready,
+            generatedAt: new Date(),
+            items: {
+              deleteMany: {},
+              create: persistedTodayItems
+            }
+          },
+          include: {
+            items: true
+          }
+        })
+      : await prisma.todayPlan.upsert({
+          where: {
+            workspaceId_date_lens: {
+              workspaceId: workspace.id,
+              date: todayDate,
+              lens: activeLens
+            }
+          },
+          create: {
+            workspaceId: workspace.id,
+            date: todayDate,
+            lens: activeLens,
+            briefing: todayPlan.briefing,
+            status: TodayPlanStatus.ready,
+            items: {
+              create: persistedTodayItems
+            }
+          },
+          update: {
+            briefing: todayPlan.briefing,
+            status: TodayPlanStatus.ready,
+            generatedAt: new Date(),
+            items: {
+              deleteMany: {},
+              create: persistedTodayItems
+            }
+          },
+          include: {
+            items: true
+          }
+        });
+
+    state.dismissedToday = persistedPlan.items
+      .filter((item) => item.dismissed)
+      .map((item) => item.taskId);
+  }
 
   return {
     state,
@@ -494,6 +714,101 @@ function buildActivity(eventType: string, payload?: string) {
     eventType,
     payload
   };
+}
+
+async function buildTaskChatContext(taskId: string) {
+  const workspace = await prisma.workspace.findFirstOrThrow({
+    include: {
+      tags: {
+        orderBy: {
+          name: "asc"
+        }
+      }
+    }
+  });
+  const task = await getTaskRecord(taskId);
+
+  return {
+    workspaceId: workspace.id,
+    task: {
+      id: task.id,
+      title: task.title,
+      description: task.description ?? "",
+      nextAction: task.nextAction ?? "",
+      status: task.status,
+      area: task.area?.name ?? null,
+      list: task.list?.name ?? null,
+      tags: task.taskTags.map((entry) => entry.tag.name),
+      availableTags: workspace.tags.map((tag) => ({
+        id: tag.id,
+        name: tag.name
+      })),
+      waitingReason: task.waitingReason,
+      recurrenceLabel: task.recurrenceLabel,
+      githubLink: task.githubIssueLink
+        ? {
+            repository: `${task.githubIssueLink.repository.owner}/${task.githubIssueLink.repository.repo}`,
+            title: task.githubIssueLink.githubTitle,
+            state: task.githubIssueLink.githubState
+          }
+        : null
+    },
+    subtasks: task.subtasks.map((subtask) => ({
+      id: subtask.id,
+      title: subtask.title,
+      isDone: subtask.isDone
+    })),
+    comments: [...task.comments]
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, 8)
+      .map((comment) => ({
+        createdAt: comment.createdAt.toISOString(),
+        body: comment.body
+      })),
+    activity: [...task.activities]
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, 10)
+      .map((entry) => ({
+        createdAt: entry.createdAt.toISOString(),
+        eventType: entry.eventType,
+        payload: entry.payload
+      }))
+  };
+}
+
+function resolveTaskChatDraftTagIds(input: {
+  draft: TaskChatDraft;
+  existingTagIds: string[];
+  workspaceTags: Array<{ id: string; name: string }>;
+}) {
+  if (!input.draft.tags.length) {
+    return [];
+  }
+
+  const existingTagIds = new Set(input.existingTagIds);
+  const tagsById = new Map(input.workspaceTags.map((tag) => [tag.id, tag.id]));
+  const tagsByName = new Map(
+    input.workspaceTags.map((tag) => [tag.name.trim().toLowerCase(), tag.id])
+  );
+  const resolved = new Set<string>();
+
+  for (const draftTag of input.draft.tags) {
+    if (draftTag.applied) {
+      continue;
+    }
+
+    if (draftTag.tagId && tagsById.has(draftTag.tagId) && !existingTagIds.has(draftTag.tagId)) {
+      resolved.add(draftTag.tagId);
+      continue;
+    }
+
+    const match = tagsByName.get(draftTag.name.trim().toLowerCase());
+    if (match && !existingTagIds.has(match)) {
+      resolved.add(match);
+    }
+  }
+
+  return Array.from(resolved);
 }
 
 async function syncTaskNextActionLink(
@@ -1016,6 +1331,75 @@ export async function updateSubtaskTitle(taskId: string, subtaskId: string, titl
   return getTaskSnapshot(taskId);
 }
 
+export async function createSubtask(taskId: string, title: string) {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) {
+    throw new Error("Subtask title cannot be empty.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const position = await tx.subtask.count({
+      where: {
+        taskId
+      }
+    });
+
+    await tx.subtask.create({
+      data: {
+        taskId,
+        title: trimmedTitle,
+        position
+      }
+    });
+
+    await tx.task.update({
+      where: {
+        id: taskId
+      },
+      data: {
+        activities: {
+          create: buildActivity("subtask_added", trimmedTitle)
+        }
+      }
+    });
+  });
+
+  return getTaskSnapshot(taskId);
+}
+
+export async function setSubtaskAsNextAction(taskId: string, subtaskId: string) {
+  await prisma.$transaction(async (tx) => {
+    const subtask = await tx.subtask.findUniqueOrThrow({
+      where: {
+        id: subtaskId
+      }
+    });
+
+    if (subtask.taskId !== taskId) {
+      throw new Error("That subtask does not belong to this task.");
+    }
+
+    if (subtask.isDone) {
+      throw new Error("Completed subtasks cannot be the active next action.");
+    }
+
+    await tx.task.update({
+      where: {
+        id: taskId
+      },
+      data: {
+        nextAction: subtask.title,
+        nextActionSubtaskId: subtask.id,
+        activities: {
+          create: buildActivity("subtask_next_action", subtask.title)
+        }
+      }
+    });
+  });
+
+  return getTaskSnapshot(taskId);
+}
+
 export async function addComment(taskId: string, body: string) {
   await prisma.task.update({
     where: {
@@ -1035,6 +1419,394 @@ export async function addComment(taskId: string, body: string) {
   });
 
   return getTaskSnapshot(taskId);
+}
+
+export async function sendTaskChatMessage(taskId: string, body: string) {
+  const trimmedBody = body.trim();
+  if (!trimmedBody) {
+    throw new Error("Message cannot be empty.");
+  }
+
+  const task = await getTaskRecord(taskId);
+  let chat = await getTaskChatRecord(taskId);
+
+  if (!chat) {
+    const conversationId = await createTaskChatConversation({
+      taskId: task.id
+    }).catch(() => null);
+
+    chat = await prisma.taskChat.create({
+      data: {
+        taskId,
+        openAiConversationId: conversationId
+      },
+      include: taskChatInclude
+    });
+  } else if (hasOpenAiConfig() && !chat.openAiConversationId) {
+    const conversationId = await createTaskChatConversation({
+      taskId: task.id,
+      resetCount: String(chat.resetCount)
+    }).catch(() => null);
+
+    chat = await prisma.taskChat.update({
+      where: {
+        id: chat.id
+      },
+      data: {
+        openAiConversationId: conversationId
+      },
+      include: taskChatInclude
+    });
+  }
+
+  await prisma.taskChatMessage.create({
+    data: {
+      taskChatId: chat.id,
+      role: TaskChatMessageRole.user,
+      body: trimmedBody
+    }
+  });
+
+  const taskSnapshot = await buildTaskChatContext(taskId);
+  const reply = await continueTaskChat({
+    conversationId: chat.openAiConversationId,
+    userMessage: trimmedBody,
+    taskSnapshot
+  });
+
+  await prisma.taskChatMessage.create({
+    data: {
+      taskChatId: chat.id,
+      role: TaskChatMessageRole.assistant,
+      body: reply.output.replyText,
+      openAiResponseId: reply.responseId
+    }
+  });
+
+  return getTaskChatSnapshot(taskId);
+}
+
+export async function resetTaskChat(taskId: string) {
+  const existing = await getTaskChatRecord(taskId);
+  if (!existing) {
+    return emptyTaskChat(taskId);
+  }
+
+  const nextResetCount = existing.resetCount + 1;
+  const conversationId = await createTaskChatConversation({
+    taskId,
+    resetCount: String(nextResetCount)
+  }).catch(() => null);
+
+  await prisma.taskChat.update({
+    where: {
+      id: existing.id
+    },
+    data: {
+      draftJson: null,
+      draftGeneratedAt: null,
+      openAiConversationId: conversationId,
+      resetCount: nextResetCount,
+      messages: {
+        deleteMany: {}
+      }
+    }
+  });
+
+  return getTaskChatSnapshot(taskId);
+}
+
+export async function generateTaskChatDraftForTask(taskId: string) {
+  let chat = await getTaskChatRecord(taskId);
+
+  if (!chat) {
+    const conversationId = await createTaskChatConversation({
+      taskId
+    }).catch(() => null);
+
+    chat = await prisma.taskChat.create({
+      data: {
+        taskId,
+        openAiConversationId: conversationId
+      },
+      include: taskChatInclude
+    });
+  }
+
+  const taskSnapshot = await buildTaskChatContext(taskId);
+  const transcript = chat.messages.map((message) => ({
+    role: message.role,
+    body: message.body
+  }));
+  const draft = await generateTaskChatDraft({
+    conversationId: chat.openAiConversationId,
+    taskSnapshot,
+    transcript
+  });
+  const draftWithTimestamp: TaskChatDraft = {
+    ...draft,
+    generatedAt: new Date().toISOString()
+  };
+
+  await prisma.taskChat.update({
+    where: {
+      id: chat.id
+    },
+    data: {
+      draftJson: serializeTaskChatDraft(draftWithTimestamp),
+      draftGeneratedAt: new Date()
+    }
+  });
+
+  return getTaskChatSnapshot(taskId);
+}
+
+export async function dismissTaskChatDraft(taskId: string) {
+  const chat = await getTaskChatRecord(taskId);
+  if (!chat) {
+    return emptyTaskChat(taskId);
+  }
+
+  await prisma.taskChat.update({
+    where: {
+      id: chat.id
+    },
+    data: {
+      draftJson: null,
+      draftGeneratedAt: null
+    }
+  });
+
+  return getTaskChatSnapshot(taskId);
+}
+
+export async function applyTaskChatDraft(
+  taskId: string,
+  action: "next_action" | "description" | "note" | "subtask" | "tag",
+  itemId?: string
+) {
+  const chat = await prisma.taskChat.findUniqueOrThrow({
+    where: {
+      taskId
+    }
+  });
+  const draft = parseStoredTaskChatDraft(chat.draftJson);
+  if (!draft) {
+    throw new Error("No draft is available for this task.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.task.findUniqueOrThrow({
+      where: {
+        id: taskId
+      },
+      include: {
+        subtasks: {
+          orderBy: {
+            position: "asc"
+          }
+        }
+      }
+    });
+
+    switch (action) {
+      case "next_action": {
+        const value = draft.nextAction?.value.trim();
+        if (!value || draft.nextAction?.applied) {
+          throw new Error("No unapplied next action is available.");
+        }
+        const nextActionDraft = draft.nextAction!;
+
+        const nextActionState = await syncTaskNextActionLink(
+          tx,
+          {
+            id: task.id,
+            nextAction: task.nextAction,
+            nextActionSubtaskId: task.nextActionSubtaskId,
+            subtasks: task.subtasks
+          },
+          value
+        );
+
+        await tx.task.update({
+          where: {
+            id: taskId
+          },
+          data: {
+            nextAction: nextActionState.nextAction,
+            nextActionSubtaskId: nextActionState.nextActionSubtaskId,
+            activities: {
+              create: buildActivity("task_chat_applied", `Updated next action to: ${nextActionState.nextAction}`)
+            }
+          }
+        });
+
+        draft.nextAction = {
+          value: nextActionDraft.value,
+          applied: true
+        };
+        break;
+      }
+      case "description": {
+        const value = draft.description?.value.trim();
+        if (!value || draft.description?.applied) {
+          throw new Error("No unapplied description is available.");
+        }
+        const descriptionDraft = draft.description!;
+
+        await tx.task.update({
+          where: {
+            id: taskId
+          },
+          data: {
+            description: value,
+            activities: {
+              create: buildActivity("task_chat_applied", "Updated task description from AI draft")
+            }
+          }
+        });
+
+        draft.description = {
+          value: descriptionDraft.value,
+          applied: true
+        };
+        break;
+      }
+      case "note": {
+        const note = draft.notes.find((entry) => entry.id === itemId);
+        if (!note || note.applied) {
+          throw new Error("No unapplied note is available.");
+        }
+
+        await tx.task.update({
+          where: {
+            id: taskId
+          },
+          data: {
+            comments: {
+              create: {
+                body: note.body,
+                commentType: CommentType.note
+              }
+            },
+            activities: {
+              create: buildActivity("task_chat_applied", "Added note from AI draft")
+            }
+          }
+        });
+
+        note.applied = true;
+        break;
+      }
+      case "subtask": {
+        const subtask = draft.subtasks.find((entry) => entry.id === itemId);
+        if (!subtask || subtask.applied) {
+          throw new Error("No unapplied subtask is available.");
+        }
+
+        const position = await tx.subtask.count({
+          where: {
+            taskId
+          }
+        });
+
+        await tx.subtask.create({
+          data: {
+            taskId,
+            title: subtask.title,
+            position
+          }
+        });
+
+        await tx.task.update({
+          where: {
+            id: taskId
+          },
+          data: {
+            activities: {
+              create: buildActivity("task_chat_applied", `Added subtask from AI draft: ${subtask.title}`)
+            }
+          }
+        });
+
+        subtask.applied = true;
+        break;
+      }
+      case "tag": {
+        const tagDraft = draft.tags.find((entry) => entry.id === itemId);
+        if (!tagDraft || tagDraft.applied) {
+          throw new Error("No unapplied tag is available.");
+        }
+
+        const workspaceTags = await tx.tag.findMany({
+          where: {
+            workspaceId: task.workspaceId
+          },
+          select: {
+            id: true,
+            name: true
+          }
+        });
+        const tagIdsToAdd = resolveTaskChatDraftTagIds({
+          draft: {
+            ...draft,
+            tags: [tagDraft]
+          },
+          existingTagIds: (await tx.taskTag.findMany({
+            where: {
+              taskId
+            },
+            select: {
+              tagId: true
+            }
+          })).map((entry) => entry.tagId),
+          workspaceTags
+        });
+
+        if (!tagIdsToAdd.length) {
+          throw new Error("No valid new tag is available.");
+        }
+
+        await tx.taskTag.create({
+          data: {
+            taskId,
+            tagId: tagIdsToAdd[0]
+          }
+        });
+
+        await tx.task.update({
+          where: {
+            id: taskId
+          },
+          data: {
+            activities: {
+              create: buildActivity("task_chat_applied", `Added tag from AI draft: ${tagDraft.name}`)
+            }
+          }
+        });
+
+        tagDraft.applied = true;
+        tagDraft.tagId = tagIdsToAdd[0];
+        break;
+      }
+      default:
+        throw new Error("Unsupported draft action.");
+    }
+
+    await tx.taskChat.update({
+      where: {
+        id: chat.id
+      },
+      data: {
+        draftJson: serializeTaskChatDraft(draft)
+      }
+    });
+  });
+
+  return {
+    chat: await getTaskChatSnapshot(taskId),
+    task: await getTaskSnapshot(taskId)
+  };
 }
 
 export async function generateTaskDescriptionForTask(taskId: string) {

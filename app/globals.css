@@ -230,6 +230,15 @@ button {
   gap: 14px;
   margin-top: 2px;
 }
+.tasks-filter-panel {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  max-width: 420px;
+}
+.tasks-filter-panel .tag-row {
+  justify-content: flex-end;
+}
 .drag-handle {
   color: var(--muted);
   letter-spacing: -0.1em;
@@ -266,9 +275,71 @@ button {
   gap: 12px;
   margin-bottom: 18px;
 }
+.subtask-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.subtask-create-form input {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid rgba(48, 41, 34, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+}
 .task-edit-form {
   display: grid;
   gap: 16px;
+}
+.ai-chat-panel {
+  display: grid;
+  gap: 18px;
+}
+.ai-chat-thread {
+  display: grid;
+  gap: 12px;
+  max-height: 640px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.chat-message {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(28, 34, 38, 0.08);
+}
+.chat-message-user {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.15);
+}
+.chat-message p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ai-draft-panel,
+.draft-stack {
+  display: grid;
+  gap: 14px;
+}
+.draft-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(28, 34, 38, 0.08);
+}
+.draft-card p,
+.draft-card strong,
+.draft-card span {
+  margin: 0;
+}
+.draft-card.accepted {
+  background: rgba(31, 122, 70, 0.1);
 }
 .metadata-list { display: grid; gap: 16px; }
 .metadata-list div { display: grid; gap: 4px; }
@@ -288,6 +359,10 @@ button {
 .activity-row p,
 .comment-card p {
   margin: 0;
+}
+.activity-row p,
+.comment-card p {
+  overflow-wrap: anywhere;
 }
 .suggestion-card .action-row {
   margin-top: 2px;
@@ -384,13 +459,22 @@ button {
   }
   .quick-capture, .feedback-form, .inline-comment, .filter-row, .task-row { grid-template-columns: 1fr; }
   .inline-create-form,
-  .placement-grid {
+  .placement-grid,
+  .subtask-create-form {
     grid-template-columns: 1fr;
   }
   .task-row { display: flex; flex-direction: column; }
   .task-row-meta { text-align: left; }
   .task-path {
     font-size: 11px;
+  }
+  .tasks-filter-panel {
+    justify-items: stretch;
+    max-width: none;
+    width: 100%;
+  }
+  .tasks-filter-panel .tag-row {
+    justify-content: flex-start;
   }
   .count-chip {
     min-width: 64px;
