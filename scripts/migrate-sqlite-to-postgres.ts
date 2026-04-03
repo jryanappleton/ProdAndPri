@@ -17,7 +17,21 @@ const sqlitePath = resolve(
 const prisma = new PrismaClient();
 const sqlite = new DatabaseSync(sqlitePath, { readOnly: true });
 
+function hasTable(table: string) {
+  const row = sqlite
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1"
+    )
+    .get(table) as { name?: string } | undefined;
+
+  return Boolean(row?.name);
+}
+
 function readTable(table: string) {
+  if (!hasTable(table)) {
+    return [];
+  }
+
   return sqlite.prepare(`SELECT * FROM "${table}"`).all() as Row[];
 }
 
