@@ -41,6 +41,7 @@ export function TodayScreen() {
   const [commentForTask, setCommentForTask] = useState<Record<string, string>>({});
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [nextActionDrafts, setNextActionDrafts] = useState<Record<string, string>>({});
+  const [mobileActionDrafts, setMobileActionDrafts] = useState<Record<string, string>>({});
 
   const grouped = useMemo(() => {
     return todayPlan.items.reduce<Record<string, typeof todayPlan.items>>((acc, item) => {
@@ -74,6 +75,33 @@ export function TodayScreen() {
       tagIds: task.tagIds
     });
     setEditingTaskId(null);
+  }
+
+  async function applyMobileAction(taskId: string) {
+    const action = mobileActionDrafts[taskId];
+    if (!action) return;
+
+    if (action === "edit_next_action") {
+      const task = state.tasks.find((entry) => entry.id === taskId);
+      if (!task) return;
+
+      setEditingTaskId(taskId);
+      setNextActionDrafts((current) => ({
+        ...current,
+        [taskId]: current[taskId] ?? task.nextAction
+      }));
+    } else if (action === "mark_done") {
+      await setTaskStatus(taskId, "done");
+    } else if (action === "mark_waiting") {
+      await setTaskStatus(taskId, "waiting_on");
+    } else if (action === "dismiss") {
+      await dismissFromToday(taskId);
+    }
+
+    setMobileActionDrafts((current) => ({
+      ...current,
+      [taskId]: ""
+    }));
   }
 
   return (
@@ -185,7 +213,7 @@ export function TodayScreen() {
                     </p>
                     <p className="task-path">
                       Score {item.score.toFixed(1)}
-                      {item.analysisSource ? ` · ${item.analysisSource} analysis` : ""}
+                      {item.analysisSource ? ` - ${item.analysisSource} analysis` : ""}
                     </p>
                     <p className="task-reason">{item.reason}</p>
                     <p className="task-next-action">
@@ -236,7 +264,7 @@ export function TodayScreen() {
                       {task.githubLink ? <TagPill label="GitHub linked" /> : null}
                       {task.recurrenceLabel ? <TagPill label={task.recurrenceLabel} /> : null}
                     </div>
-                    <div className="action-row">
+                    <div className="action-row task-action-row-desktop">
                       <button
                         type="button"
                         onClick={() => {
@@ -251,20 +279,65 @@ export function TodayScreen() {
                         {task.nextAction ? "Edit next action" : "Add next action"}
                       </button>
                       {task.status !== "done" ? (
-                        <button type="button" onClick={() => setTaskStatus(task.id, "done")} disabled={isSaving}>
+                        <button
+                          type="button"
+                          onClick={() => setTaskStatus(task.id, "done")}
+                          disabled={isSaving}
+                        >
                           Mark done
                         </button>
                       ) : null}
                       {task.status !== "waiting_on" ? (
-                        <button type="button" onClick={() => setTaskStatus(task.id, "waiting_on")} disabled={isSaving}>
+                        <button
+                          type="button"
+                          onClick={() => setTaskStatus(task.id, "waiting_on")}
+                          disabled={isSaving}
+                        >
                           Waiting on
                         </button>
                       ) : null}
-                      <button type="button" onClick={() => dismissFromToday(task.id)} disabled={isSaving}>
+                      <button
+                        type="button"
+                        onClick={() => dismissFromToday(task.id)}
+                        disabled={isSaving}
+                      >
                         Dismiss
                       </button>
                     </div>
-                    <div className="inline-comment">
+                    <div className="mobile-quick-action-row">
+                      <select
+                        aria-label={`Quick action for ${task.title}`}
+                        value={mobileActionDrafts[task.id] ?? ""}
+                        onChange={(event) =>
+                          setMobileActionDrafts((current) => ({
+                            ...current,
+                            [task.id]: event.target.value
+                          }))
+                        }
+                        disabled={isSaving}
+                      >
+                        <option value="">Quick action</option>
+                        <option value="edit_next_action">
+                          {task.nextAction ? "Edit next action" : "Add next action"}
+                        </option>
+                        {task.status !== "done" ? (
+                          <option value="mark_done">Mark done</option>
+                        ) : null}
+                        {task.status !== "waiting_on" ? (
+                          <option value="mark_waiting">Set waiting on</option>
+                        ) : null}
+                        <option value="dismiss">Dismiss from Today</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={isSaving || !(mobileActionDrafts[task.id] ?? "")}
+                        onClick={() => applyMobileAction(task.id)}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    <div className="inline-comment task-inline-comment-desktop">
                       <input
                         value={commentForTask[task.id] ?? ""}
                         onChange={(event) =>
@@ -287,6 +360,32 @@ export function TodayScreen() {
                         Comment
                       </button>
                     </div>
+                    <details className="task-accordion task-inline-comment-mobile">
+                      <summary>Add note</summary>
+                      <div className="inline-comment">
+                        <input
+                          value={commentForTask[task.id] ?? ""}
+                          onChange={(event) =>
+                            setCommentForTask((current) => ({
+                              ...current,
+                              [task.id]: event.target.value
+                            }))
+                          }
+                          placeholder="Add context..."
+                          disabled={isSaving}
+                        />
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={async () => {
+                            await addComment(task.id, commentForTask[task.id] ?? "");
+                            setCommentForTask((current) => ({ ...current, [task.id]: "" }));
+                          }}
+                        >
+                          Comment
+                        </button>
+                      </div>
+                    </details>
                   </article>
                 );
               })}

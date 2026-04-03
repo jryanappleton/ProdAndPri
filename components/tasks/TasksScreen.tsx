@@ -16,6 +16,8 @@ export function TasksScreen() {
     deleteList,
     updateTaskPlacement,
     updateTask,
+    setTaskStatus,
+    deleteTask,
     getAreaName,
     getListName,
     getTagNames
@@ -73,6 +75,13 @@ export function TasksScreen() {
     activeList === "all"
       ? null
       : state.lists.find((list) => list.id === activeList)?.name ?? null;
+  const visibleLists = useMemo(() => {
+    if (activeArea === "all") {
+      return state.lists;
+    }
+
+    return state.lists.filter((list) => list.areaId === activeArea);
+  }, [activeArea, state.lists]);
 
   async function handleCreateArea(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -129,7 +138,7 @@ export function TasksScreen() {
 
   return (
     <div className="tasks-layout">
-      <aside className="panel hierarchy-panel">
+      <aside className="panel hierarchy-panel desktop-only">
         <div className="panel-header">
           <div>
             <p className="eyebrow">Hierarchy</p>
@@ -273,7 +282,7 @@ export function TasksScreen() {
               <p className="muted-copy">Filtered to list: {activeListName}</p>
             ) : null}
           </div>
-          <div className="tasks-filter-panel">
+          <div className="tasks-filter-panel desktop-only">
             <p className="eyebrow">Exclude tags</p>
             <div className="tag-row">
               {state.tags.length ? (
@@ -304,7 +313,188 @@ export function TasksScreen() {
             </div>
           </div>
         </div>
-        <div className="filter-row">
+        <div className="mobile-tasks-toolbar mobile-only">
+          <div className="mobile-filter-grid">
+            <label className="field-block">
+              <span className="eyebrow">Search</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search titles and notes..."
+              />
+            </label>
+            <label className="field-block">
+              <span className="eyebrow">Status</span>
+              <select
+                value={activeStatus}
+                onChange={(event) =>
+                  setActiveStatus(event.target.value as "all" | "open" | "waiting_on" | "done")
+                }
+              >
+                <option value="all">All statuses</option>
+                <option value="open">Open</option>
+                <option value="waiting_on">Waiting On</option>
+                <option value="done">Done</option>
+              </select>
+            </label>
+            <label className="field-block">
+              <span className="eyebrow">Area</span>
+              <select
+                value={activeArea}
+                onChange={(event) => {
+                  const nextArea = event.target.value as string | "all";
+                  setActiveArea(nextArea);
+                  setActiveList("all");
+                }}
+              >
+                <option value="all">All areas</option>
+                {state.areas.map((area) => (
+                  <option key={area.id} value={area.id}>
+                    {area.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field-block">
+              <span className="eyebrow">List</span>
+              <select
+                value={activeList}
+                onChange={(event) => setActiveList(event.target.value as string | "all")}
+              >
+                <option value="all">All lists</option>
+                {visibleLists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {list.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="tasks-filter-panel">
+            <p className="eyebrow">Exclude tags</p>
+            <div className="tag-row">
+              {state.tags.length ? (
+                state.tags.map((tag) => {
+                  const excluded = effectiveExcludedTagIds.includes(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      className={excluded ? "lens-chip active" : "lens-chip"}
+                      onClick={() => {
+                        setHasTouchedTagFilters(true);
+                        setExcludedTagIds((current) =>
+                          current.includes(tag.id)
+                            ? current.filter((id) => id !== tag.id)
+                            : [...current, tag.id]
+                        );
+                      }}
+                      disabled={isSaving}
+                    >
+                      {tag.name}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="count-chip">No tags</span>
+              )}
+            </div>
+          </div>
+          <details className="task-accordion">
+            <summary>Organize areas and lists</summary>
+            <div className="mobile-organize-stack">
+              <form className="inline-create-form" onSubmit={handleCreateArea}>
+                <input
+                  value={newAreaName}
+                  onChange={(event) => setNewAreaName(event.target.value)}
+                  placeholder="Create an area..."
+                  disabled={isSaving}
+                />
+                <button type="submit" disabled={isSaving}>
+                  Add area
+                </button>
+              </form>
+              {state.areas.map((area) => (
+                <div key={area.id} className="mobile-area-card">
+                  <div className="mobile-area-header">
+                    <button
+                      type="button"
+                      className={activeArea === area.id ? "hierarchy-item active" : "hierarchy-item"}
+                      onClick={() => {
+                        setActiveArea(area.id);
+                        setActiveList("all");
+                      }}
+                    >
+                      {area.name}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button danger-text-button"
+                      disabled={isSaving}
+                      onClick={() => handleDeleteArea(area.id, area.name)}
+                    >
+                      Delete area
+                    </button>
+                  </div>
+                  <div className="mobile-list-stack">
+                    {state.lists
+                      .filter((list) => list.areaId === area.id)
+                      .map((list) => (
+                        <div key={list.id} className="mobile-list-row">
+                          <button
+                            type="button"
+                            className={
+                              activeList === list.id
+                                ? "hierarchy-child hierarchy-child-active"
+                                : "hierarchy-child"
+                            }
+                            onClick={() => {
+                              setActiveArea(area.id);
+                              setActiveList(list.id);
+                            }}
+                          >
+                            {list.name}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button danger-text-button"
+                            disabled={isSaving}
+                            onClick={() => handleDeleteList(list.id, list.name)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    <form
+                      className="inline-create-form"
+                      onSubmit={async (event) => {
+                        event.preventDefault();
+                        await createList(area.id, listDrafts[area.id] ?? "");
+                        setListDrafts((current) => ({ ...current, [area.id]: "" }));
+                      }}
+                    >
+                      <input
+                        value={listDrafts[area.id] ?? ""}
+                        onChange={(event) =>
+                          setListDrafts((current) => ({
+                            ...current,
+                            [area.id]: event.target.value
+                          }))
+                        }
+                        placeholder="Add a list..."
+                        disabled={isSaving}
+                      />
+                      <button type="submit" disabled={isSaving}>
+                        Add
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+        <div className="filter-row desktop-only">
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -335,17 +525,17 @@ export function TasksScreen() {
                   setDropListId(null);
                 }}
               >
-                <div className="task-row-main">
-                  <div className="task-row-top">
-                    <span className="drag-handle" aria-hidden="true">
-                      ::
-                    </span>
-                    <StatusBadge status={task.status} />
-                  </div>
-                  <p className="task-path">
-                    {getAreaName(task.areaId)}
-                    {task.listId ? ` > ${getListName(task.listId)}` : ""}
-                  </p>
+                  <div className="task-row-main">
+                    <div className="task-row-top">
+                      <span className="drag-handle desktop-only" aria-hidden="true">
+                        ::
+                      </span>
+                      <StatusBadge status={task.status} />
+                      <span className="count-chip task-location-chip">
+                        {getAreaName(task.areaId)}
+                        {task.listId ? ` / ${getListName(task.listId)}` : ""}
+                      </span>
+                    </div>
                   <Link href={`/tasks/${task.id}`}>
                     <h4>{task.title}</h4>
                   </Link>
@@ -395,8 +585,64 @@ export function TasksScreen() {
                       <TagPill key={tag} label={tag} />
                     ))}
                   </div>
+                  <details className="task-accordion mobile-only">
+                    <summary>Manage task</summary>
+                    <div className="task-manage-stack">
+                      <div className="action-row">
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => startEditingNextAction(task.id, task.nextAction)}
+                          disabled={isSaving}
+                        >
+                          {task.nextAction ? "Edit next action" : "Add next action"}
+                        </button>
+                        {task.status !== "done" ? (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => setTaskStatus(task.id, "done")}
+                            disabled={isSaving}
+                          >
+                            Mark done
+                          </button>
+                        ) : null}
+                        {task.status !== "waiting_on" ? (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => setTaskStatus(task.id, "waiting_on")}
+                            disabled={isSaving}
+                          >
+                            Waiting on
+                          </button>
+                        ) : null}
+                        {task.status !== "open" ? (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => setTaskStatus(task.id, "open")}
+                            disabled={isSaving}
+                          >
+                            Mark open
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="ghost-button danger-text-button"
+                          onClick={() => deleteTask(task.id)}
+                          disabled={isSaving}
+                        >
+                          Delete task
+                        </button>
+                      </div>
+                      <p className="task-path">
+                        To move this task to another area or list, open the full task page.
+                      </p>
+                    </div>
+                  </details>
                 </div>
-                <div className="task-row-meta">
+                <div className="task-row-meta desktop-only">
                   <button
                     type="button"
                     onClick={() => startEditingNextAction(task.id, task.nextAction)}
@@ -404,6 +650,16 @@ export function TasksScreen() {
                   >
                     {task.nextAction ? "Edit next action" : "Add next action"}
                   </button>
+                  {task.status !== "done" ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setTaskStatus(task.id, "done")}
+                      disabled={isSaving}
+                    >
+                      Mark done
+                    </button>
+                  ) : null}
                   {task.dueDate ? <span>Due soon</span> : null}
                   {task.githubLink ? <span>GitHub #{task.githubLink.issueNumber}</span> : null}
                 </div>
@@ -421,7 +677,7 @@ export function TasksScreen() {
           )}
         </div>
         {draggingTaskId ? (
-          <p className="muted-copy">
+          <p className="muted-copy desktop-only">
             Dragging task. Drop it onto a list in the hierarchy rail to move it.
           </p>
         ) : null}
