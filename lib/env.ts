@@ -1,5 +1,9 @@
 const env = {
-  databaseUrl: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
+  databaseUrl:
+    process.env.POSTGRES_PRISMA_URL ??
+    process.env.POSTGRES_URL ??
+    process.env.DATABASE_URL ??
+    "",
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
   openAiClassifyModel: process.env.OPENAI_MODEL_CLASSIFY ?? "gpt-4.1-mini",
   openAiTodayModel: process.env.OPENAI_MODEL_TODAY ?? "gpt-4.1",

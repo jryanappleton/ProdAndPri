@@ -23,7 +23,6 @@ export function InboxScreen() {
   const {
     state,
     isSaving,
-    createVoiceCapture,
     applySuggestion,
     ignoreSuggestion,
     fileTaskFromInbox,
@@ -45,8 +44,8 @@ export function InboxScreen() {
           </p>
         </div>
         <div className="hero-side">
-          <button type="button" onClick={createVoiceCapture} disabled={isSaving}>
-            Simulate voice capture
+          <button type="button" disabled>
+            Voice capture coming later
           </button>
         </div>
       </section>

@@ -691,7 +691,7 @@ export async function getBootstrapPayload(
     todayPlan,
     integrations: {
       database: {
-        provider: "sqlite",
+        provider: "postgres",
         ready: true
       },
       openAi: {

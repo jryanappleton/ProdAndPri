@@ -279,7 +279,7 @@ export interface TodayPlan {
 
 export interface IntegrationStatus {
   database: {
-    provider: "sqlite";
+    provider: "postgres";
     ready: boolean;
   };
   openAi: {

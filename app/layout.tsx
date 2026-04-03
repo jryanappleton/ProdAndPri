@@ -4,6 +4,9 @@ import { AppStateProvider } from "@/components/shared/AppStateProvider";
 import { getBootstrapPayload } from "@/lib/server/app-state";
 import "./globals.css";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: "Prod & Pri",
   description: "Today-first productivity workspace for v1.1 validation."

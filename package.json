@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=24.14.1"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
@@ -13,8 +13,9 @@
     "typecheck": "npx.cmd tsc --noEmit",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:setup": "powershell -Command \"if (Test-Path '.\\dev.db') { Remove-Item '.\\dev.db' -Force }; $sql = npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script; $sql | npx prisma db execute --stdin --url 'file:./dev.db'; npm run db:seed\"",
-    "db:seed": "prisma db seed"
+    "db:setup": "npm run db:push && npm run db:seed",
+    "db:seed": "prisma db seed",
+    "db:migrate-sqlite": "tsx scripts/migrate-sqlite-to-postgres.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.2",
