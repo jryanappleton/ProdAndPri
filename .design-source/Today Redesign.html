@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1440" />
+<title>ProdnPri — Today (redesign)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<script>
+  window.__TWEAKS__ = /*EDITMODE-BEGIN*/{
+    "density": "comfy",
+    "accent": "teal",
+    "showBriefing": true,
+    "groupStyle": "inline"
+  }/*EDITMODE-END*/;
+</script>
+
+<style>
+  :root {
+    --bg: #f5efe4;
+    --bg-2: #efe7d8;
+    --paper: #fcf8f0;
+    --paper-2: #f7f1e3;
+    --ink: #17201f;
+    --ink-2: #2d3734;
+    --muted: #6c6a60;
+    --muted-2: #8a8678;
+    --rule: #1d2426;
+    --line: rgba(29, 36, 38, 0.10);
+    --line-soft: rgba(29, 36, 38, 0.06);
+
+    --accent: #0f766e;
+    --accent-ink: #0b5a54;
+    --accent-soft: rgba(15, 118, 110, 0.10);
+    --accent-softer: rgba(15, 118, 110, 0.05);
+
+    --warn: #8a5a15;
+    --warn-soft: rgba(183, 121, 31, 0.14);
+    --done: #1f7a46;
+    --done-soft: rgba(31, 122, 70, 0.12);
+    --danger: #9c3b28;
+
+    --row-py: 18px;
+    --task-gap: 8px;
+
+    --font-sans: "Inter", system-ui, sans-serif;
+    --font-serif: "Fraunces", Georgia, serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+
+  [data-accent="plum"] { --accent: #6b3b7a; --accent-ink: #542d60; --accent-soft: rgba(107,59,122,.10); --accent-softer: rgba(107,59,122,.05); }
+  [data-accent="rust"] { --accent: #a44a22; --accent-ink: #7f3816; --accent-soft: rgba(164,74,34,.10); --accent-softer: rgba(164,74,34,.05); }
+  [data-accent="ink"]  { --accent: #1f2a33; --accent-ink: #131a21; --accent-soft: rgba(31,42,51,.08); --accent-softer: rgba(31,42,51,.04); }
+
+  [data-density="compact"] { --row-py: 12px; --task-gap: 4px; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font-sans); font-size: 14px; line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  input, select { font: inherit; color: inherit; }
+  a { color: inherit; text-decoration: none; }
+
+  /* topbar (same as tasks) */
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    display: grid;
+    grid-template-columns: 240px 1fr auto;
+    align-items: center;
+    gap: 24px;
+    padding: 14px 28px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-serif); font-size: 20px; letter-spacing: -0.02em; font-weight: 600; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-family: var(--font-sans); font-size: 11px; font-weight: 700; }
+  .nav { display: flex; gap: 2px; }
+  .nav a { padding: 7px 12px; font-size: 13px; color: var(--muted); border-radius: 6px; font-weight: 500; }
+  .nav a:hover { color: var(--ink); background: var(--line-soft); }
+  .nav a.active { color: var(--ink); font-weight: 600; }
+  .nav a.active::after { content: ""; display: block; height: 2px; background: var(--ink); margin: 6px -12px -15px; }
+  .capture { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); width: 360px; }
+  .capture input { flex: 1; border: 0; background: transparent; outline: none; font-size: 13px; }
+  .capture kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--bg); color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .btn:hover { border-color: var(--rule); }
+  .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .btn.primary:hover { background: #000; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  .btn.sm { padding: 5px 9px; font-size: 12px; }
+
+  /* ======= Page ======= */
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 28px 36px 80px;
+  }
+
+  /* ======= Header row ======= */
+  .today-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 32px;
+    align-items: end;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 22px;
+  }
+  .eyebrow {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-softer);
+  }
+  .today-title {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-size: 36px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+  }
+  .today-sub {
+    margin: 10px 0 0;
+    color: var(--ink-2);
+    font-size: 14px;
+    max-width: 62ch;
+    line-height: 1.5;
+  }
+  .stats {
+    display: flex; gap: 28px;
+    align-items: flex-end;
+    padding-bottom: 4px;
+  }
+  .stat .n {
+    font-family: var(--font-serif);
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    display: block;
+  }
+  .stat .l {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .stat.waiting .n { color: var(--warn); }
+
+  /* ======= Plan controls strip ======= */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper);
+    margin-bottom: 8px;
+  }
+  .controls .label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .lens-seg {
+    display: inline-flex;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .lens-seg button {
+    padding: 6px 11px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    border-right: 1px solid var(--line);
+  }
+  .lens-seg button:last-child { border-right: 0; }
+  .lens-seg button.active { background: var(--ink); color: var(--paper); }
+  .lens-seg button:not(.active):hover { color: var(--ink); }
+
+  .controls .steer {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .controls .steer input {
+    flex: 1;
+    border: 0; outline: 0;
+    background: transparent;
+    font-size: 13px;
+    padding: 4px 0;
+    border-bottom: 1px dashed transparent;
+  }
+  .controls .steer input:focus { border-bottom-color: var(--line); }
+  .controls .steer input::placeholder { color: var(--muted-2); font-style: italic; }
+
+  .meta-line-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 26px;
+  }
+  .meta-line-row .updated {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .meta-line-row .updated .pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--done);
+  }
+
+  /* ======= Plan list ======= */
+  .group {
+    margin-bottom: 12px;
+  }
+  .group-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 22px 0 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 2px;
+  }
+  .group-head .gtitle { color: var(--ink); }
+  .group-head .desc {
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .group-head .n {
+    margin-left: auto;
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  .item {
+    display: grid;
+    grid-template-columns: 28px 22px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    padding: var(--row-py) 4px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .item:hover { background: rgba(29,36,38,0.018); }
+  .item.waiting { background: linear-gradient(90deg, rgba(183,121,31,0.04), transparent 50%); }
+  .item.done .title-line { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(0,0,0,.25); }
+
+  .rank {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted-2);
+    padding-top: 4px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .check {
+    appearance: none;
+    margin: 3px 0 0;
+    width: 16px; height: 16px;
+    border: 1.5px solid var(--muted-2);
+    border-radius: 4px;
+    background: var(--paper);
+    cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .check:hover { border-color: var(--ink); }
+  .check:checked { background: var(--ink); border-color: var(--ink); }
+  .check:checked::after {
+    content: ""; width: 9px; height: 5px;
+    border-left: 1.5px solid var(--paper);
+    border-bottom: 1.5px solid var(--paper);
+    transform: rotate(-45deg) translate(1px, -1px);
+  }
+  .item.waiting .check { border-color: var(--warn); background: var(--warn-soft); }
+
+  .body { min-width: 0; display: flex; flex-direction: column; gap: var(--task-gap); }
+  .title-line {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+  }
+  .title-line:hover { color: var(--accent-ink); }
+
+  .reason {
+    color: var(--ink-2);
+    font-size: 13px;
+    line-height: 1.5;
+    max-width: 65ch;
+  }
+
+  .next-action {
+    display: flex; align-items: flex-start; gap: 10px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .next-action .marker {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    padding-top: 2px;
+    min-width: 62px;
+  }
+  .next-action.empty { color: var(--muted-2); font-style: italic; }
+  .next-action.empty .marker { color: var(--muted); font-style: normal; }
+
+  .meta-line {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+    margin-top: 2px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 7px;
+    font-size: 11px;
+    border-radius: 4px;
+    background: var(--line-soft);
+    color: var(--ink-2);
+    font-weight: 500;
+    font-family: var(--font-mono);
+    letter-spacing: 0.01em;
+  }
+  .chip.path {
+    background: transparent; padding: 0; color: var(--muted);
+  }
+  .chip.path .area { color: var(--ink-2); font-weight: 600; }
+  .chip.path .sep { opacity: 0.5; margin: 0 4px; }
+  .chip.tag { background: transparent; border: 1px solid var(--line); color: var(--muted); font-family: var(--font-sans); font-weight: 500; }
+  .chip.status-open { background: var(--accent-soft); color: var(--accent-ink); }
+  .chip.status-waiting_on { background: var(--warn-soft); color: var(--warn); }
+
+  .score {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .score-bar {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: var(--line-soft);
+    overflow: hidden;
+  }
+  .score-bar i {
+    display: block; height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  .score .src { color: var(--muted-2); }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 100ms ease;
+    padding-top: 1px;
+  }
+  .item:hover .actions,
+  .item:focus-within .actions { opacity: 1; }
+  .actions .btn.sm { padding: 4px 8px; font-size: 11px; }
+  .icon-btn {
+    width: 26px; height: 26px;
+    display: grid; place-items: center;
+    border-radius: 5px; color: var(--muted);
+  }
+  .icon-btn:hover { background: var(--line-soft); color: var(--ink); }
+  .icon-btn svg { width: 14px; height: 14px; }
+
+  /* expanded quick note on row */
+  .quick-note {
+    display: none;
+    grid-column: 3 / 5;
+    margin-top: 4px;
+    gap: 8px;
+    align-items: center;
+  }
+  .quick-note input {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+    font-size: 13px;
+    outline: 0;
+  }
+  .item.note-open .quick-note { display: flex; }
+
+  /* ======= Briefing strip ======= */
+  .briefing {
+    padding: 12px 14px;
+    border-left: 2px solid var(--accent);
+    background: var(--accent-softer);
+    margin-bottom: 22px;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.55;
+    display: flex; gap: 12px;
+  }
+  .briefing .kicker {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    white-space: nowrap;
+    padding-top: 2px;
+  }
+  .briefing p { margin: 0; max-width: 75ch; }
+  [data-briefing="false"] .briefing { display: none; }
+
+  /* ======= Tweaks ======= */
+  .tweaks-panel {
+    position: fixed; bottom: 18px; right: 18px; z-index: 50;
+    width: 260px;
+    padding: 14px 16px 16px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+    display: none;
+    font-size: 13px;
+  }
+  .tweaks-panel.open { display: block; }
+  .tweaks-panel h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+  .tweaks-panel h3 button { color: var(--muted); font-size: 14px; }
+  .tweak-row { display: grid; gap: 6px; margin-bottom: 12px; }
+  .tweak-row label { font-size: 12px; color: var(--muted); }
+  .tweak-seg { display: inline-flex; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tweak-seg button { flex: 1; padding: 5px 8px; font-size: 12px; color: var(--muted); border-right: 1px solid var(--line); }
+  .tweak-seg button:last-child { border-right: 0; }
+  .tweak-seg button.active { background: var(--ink); color: var(--paper); }
+  .tweak-swatches { display: flex; gap: 6px; }
+  .tweak-swatches button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; }
+  .tweak-swatches button[data-val="teal"] { background: #0f766e; }
+  .tweak-swatches button[data-val="plum"] { background: #6b3b7a; }
+  .tweak-swatches button[data-val="rust"] { background: #a44a22; }
+  .tweak-swatches button[data-val="ink"]  { background: #1f2a33; }
+  .tweak-swatches button.active { border-color: var(--ink); }
+
+  .notes-card {
+    padding: 14px 16px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: var(--paper-2);
+    margin-bottom: 22px;
+    color: var(--ink-2);
+    font-size: 13px;
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .notes-card .kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); font-weight: 600; padding: 3px 8px; border: 1px solid var(--accent); border-radius: 4px; white-space: nowrap; }
+  .notes-card p { margin: 0; max-width: 70ch; }
+  .notes-card strong { color: var(--ink); }
+
+  /* inline groupStyle=banded alt layout */
+  [data-group="banded"] .group-head { background: var(--paper); padding: 14px 14px; border: 1px solid var(--line); border-radius: 8px; margin: 18px 0 0; }
+  [data-group="banded"] .item:first-child { border-top: 0; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">P&amp;P</span>
+    <span>Prod &amp; Pri</span>
+  </div>
+  <nav class="nav" aria-label="Primary">
+    <a href="#" class="active">Today</a>
+    <a href="Tasks Redesign.html">All Tasks</a>
+    <a href="#">Inbox</a>
+    <a href="#">Settings</a>
+  </nav>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <div class="capture">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" style="color: var(--muted)"><circle cx="9" cy="9" r="6"/><path d="m17 17-3.5-3.5"/></svg>
+      <input placeholder="Quick capture a task…" />
+      <kbd>⌘K</kbd>
+    </div>
+    <button class="btn primary">Capture</button>
+  </div>
+</header>
+
+<main class="page">
+
+  <div class="today-head">
+    <div>
+      <p class="eyebrow"><span class="dot"></span> Today · Monday, Apr 20</p>
+      <h1 class="today-title">Your plan for today.</h1>
+      <p class="today-sub">A small, pointed list. Only the things that will actually move something this morning — check them off as you go.</p>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="n" id="openN">16</span><span class="l">Open</span></div>
+      <div class="stat waiting"><span class="n">1</span><span class="l">Waiting</span></div>
+      <div class="stat"><span class="n" id="planN">9</span><span class="l">In plan</span></div>
+    </div>
+  </div>
+
+  <div class="notes-card">
+    <span class="kicker">Redesign notes</span>
+    <p>
+      <strong>What changed:</strong> the hero card, metric tiles, plan-controls panel, and group panels are all gone. The lens switch and steering note collapse into one inline bar. Each recommendation is a single row — title, reason, Next Action, path/score/tags — grouped under typographic section headers. No more giant cards, no more repeated action buttons. Actions appear on hover.
+    </p>
+  </div>
+
+  <!-- Compact plan controls -->
+  <div class="controls">
+    <span class="label">Lens</span>
+    <div class="lens-seg" id="lensSeg">
+      <button data-val="balanced" class="active">Balanced</button>
+      <button data-val="revenue">Revenue</button>
+      <button data-val="unblock">Unblock</button>
+      <button data-val="strategic">Strategic</button>
+      <button data-val="admin">Admin</button>
+    </div>
+    <div class="steer">
+      <span class="label">Steer</span>
+      <input placeholder='"Bias toward easier wins this morning…"' />
+    </div>
+    <button class="btn sm" id="refreshBtn">↻ Refresh</button>
+  </div>
+  <div class="meta-line-row">
+    <span class="updated"><span class="pulse"></span> Plan updated 2m ago · Balanced lens · AI analysis</span>
+    <span>9 recommendations · <a href="#" style="color: var(--accent); border-bottom: 1px solid var(--accent-soft);">See all 16</a></span>
+  </div>
+
+  <!-- Briefing -->
+  <div class="briefing">
+    <span class="kicker">Briefing</span>
+    <p>Today sustains momentum across 16 tasks and 1 follow-up. Focus: decide QuickBooks Online for 2025 Tax Returns, build a 12-month cash flow model, and advance out-of-town partnerships with quick wins (export lists, draft messages).</p>
+  </div>
+
+  <!-- Plan body -->
+  <div id="plan"></div>
+
+</main>
+
+<aside class="tweaks-panel" id="tweaksPanel">
+  <h3><span>Tweaks</span><button id="tweaksClose">✕</button></h3>
+  <div class="tweak-row">
+    <label>Density</label>
+    <div class="tweak-seg" data-tweak="density">
+      <button data-val="comfy">Comfy</button>
+      <button data-val="compact">Compact</button>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label>AI briefing</label>
+    <div class="tweak-seg" data-tweak="showBriefing">
+      <button data-val="true">Show</button>
+      <button data-val="false">Hide</button>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label>Group style</label>
+    <div class="tweak-seg" data-tweak="groupStyle">
+      <button data-val="inline">Inline</button>
+      <button data-val="banded">Banded</button>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label>Accent color</label>
+    <div class="tweak-swatches" data-tweak="accent">
+      <button data-val="teal"></button>
+      <button data-val="plum"></button>
+      <button data-val="rust"></button>
+      <button data-val="ink"></button>
+    </div>
+  </div>
+</aside>
+
+<!-- Tweaks toggle button (floating) -->
+<button class="btn sm" id="tweaksBtn" style="position:fixed; bottom: 18px; right: 18px; z-index: 40;">Tweaks</button>
+
+<script>
+const GROUPS = [
+  { key: "waiting_follow_up", title: "Waiting on follow-up", desc: "3 threads you need to chase." },
+  { key: "quick_wins", title: "Quick wins", desc: "Small, high-leverage moves." },
+  { key: "highest_leverage", title: "Highest leverage", desc: "Deep work that compounds." }
+];
+
+const PLAN = [
+  { id: "2025-tax", groupKey: "waiting_follow_up",
+    title: "2025 Tax Returns", status: "waiting_on",
+    path: ["Personal", "Next Ups"],
+    score: 73.4, source: "AI",
+    reason: "Blocked by the need to decide whether to use QuickBooks Online for tax prep; researching QBO offerings is required to unblock. Requires focused analysis to decide on tax software and document timelines.",
+    nextAction: "Research QuickBooks Online tax offerings and decide whether to use QBO for 2025 tax prep.",
+    tags: ["followup"] },
+
+  { id: "oot", groupKey: "quick_wins",
+    title: "Improve out of town partnerships", status: "open",
+    path: ["Lazy Tiger", "Business Development"],
+    score: 51.2, source: "AI",
+    reason: "Two subtasks (list export and message draft) can be completed quickly and show timely progress. Developing out-of-town partnerships offers longer-term leverage and scalable network effects.",
+    nextAction: "Export or generate a list of past guests from Charlotte, Raleigh, and Atlanta using your guest database or CRM.",
+    tags: ["revenue", "quick"] },
+
+  { id: "cashflow", groupKey: "highest_leverage",
+    title: "Create future cash flow projections", status: "open",
+    path: ["Lazy Tiger", "Next Ups"],
+    score: 58.7, source: "AI",
+    reason: "Building the model requires focused, high-concentration work across data and assumptions. It creates a scalable 12-month cash-flow model, supporting long-horizon planning and decision-making.",
+    nextAction: "Gather data and populate the model.",
+    tags: ["strategic", "deep"] },
+
+  { id: "retarget", groupKey: "highest_leverage",
+    title: "Retargeting using Mailchimp list of previous guests", status: "open",
+    path: ["Lazy Tiger", "Next Ups"],
+    score: 46.4, source: "AI",
+    reason: "Key blockers (objective, list readiness, permissions, assets) prevent progress until resolved. Beneficial to allocate focused time for scope, copy, and asset work to avoid churn.",
+    nextAction: "",
+    tags: ["revenue"] },
+
+  { id: "leads", groupKey: "highest_leverage",
+    title: "Strategies for capturing more leads", status: "open",
+    path: ["Lazy Tiger", "Longer Term Planning"],
+    score: 48.5, source: "AI",
+    reason: "Likely benefits from deep, focused work to craft effective capture strategies. High strategic value as long-term planning for lead capture and future campaigns.",
+    nextAction: "",
+    tags: ["strategic", "deep"] },
+
+  { id: "guestchat", groupKey: "highest_leverage",
+    title: "Automate posting to guest chat", status: "open",
+    path: ["Lazy Tiger", "Next Ups"],
+    score: 48.1, source: "AI",
+    reason: "Requires careful evaluation of APIs, Zapier, and built-in options; suited for focused analysis. Aims to research options to enable posting automation, removing future blockers.",
+    nextAction: "Research API or Zapier options to post to guest chat.",
+    tags: ["deep"] },
+
+  { id: "manual", groupKey: "quick_wins",
+    title: "Update manual with lists of common guest questions/policies", status: "open",
+    path: ["Lazy Tiger", "Next Ups"],
+    score: 47.8, source: "AI",
+    reason: "Helps staff answer common guest questions faster, reducing blocking delays. Can deliver quick gains by compiling existing Qs into a ready-to-use guidelines section.",
+    nextAction: "",
+    tags: ["quick"] },
+
+  { id: "wifi", groupKey: "highest_leverage",
+    title: "Set up wifi lock integration", status: "open",
+    path: ["Lazy Tiger", "Next Ups"],
+    score: 47.2, source: "AI",
+    reason: "Requires deep analysis of hardware, docs, and integration flow; high focus needed. Blockers include unknown lock model/protocol, missing credentials, and unclear integration path.",
+    nextAction: "",
+    tags: ["deep"] },
+
+  { id: "close-job", groupKey: "quick_wins",
+    title: "Add pre-populated 'Close job' reason dropdown", status: "open",
+    path: ["Patchwork", "Next Ups"],
+    score: 36.0, source: "AI",
+    reason: "Likely a quick win: self-contained change that can be implemented rapidly. Requires limited deep work; a small, self-contained change suitable for focused effort.",
+    nextAction: "",
+    tags: ["quick"] }
+];
+
+const state = {
+  lens: "balanced",
+  tweaks: { ...window.__TWEAKS__ },
+  openNote: null,
+  done: new Set()
+};
+
+function applyTweaks() {
+  const r = document.documentElement;
+  r.setAttribute("data-density", state.tweaks.density);
+  r.setAttribute("data-accent", state.tweaks.accent);
+  r.setAttribute("data-briefing", String(state.tweaks.showBriefing));
+  r.setAttribute("data-group", state.tweaks.groupStyle);
+}
+
+function chipPath(path) {
+  return `<span class="chip path"><span class="area">${path[0]}</span><span class="sep">/</span>${path[1]}</span>`;
+}
+function statusChip(s) {
+  if (s === "waiting_on") return `<span class="chip status-waiting_on">Waiting</span>`;
+  if (s === "done") return ``;
+  return `<span class="chip status-open">Open</span>`;
+}
+function scoreDisplay(score, source) {
+  const pct = Math.min(100, Math.max(0, (score / 100) * 100));
+  return `<span class="score"><span class="score-bar"><i style="width:${pct}%"></i></span>${score.toFixed(1)} <span class="src">· ${source}</span></span>`;
+}
+function tagChips(tags) {
+  const map = { revenue: "Revenue", strategic: "Strategic", followup: "Follow-Up", deep: "Deep Work", quick: "Quick Win" };
+  return tags.map(t => `<span class="chip tag">${map[t] || t}</span>`).join("");
+}
+
+function itemRow(t, idx) {
+  const done = state.done.has(t.id);
+  const waiting = t.status === "waiting_on";
+  const na = t.nextAction
+    ? `<div class="next-action"><span class="marker">Next →</span><span>${t.nextAction}</span></div>`
+    : `<div class="next-action empty"><span class="marker">Next →</span><span>No next action yet — click to set one</span></div>`;
+
+  return `
+    <div class="item ${waiting ? "waiting" : ""} ${done ? "done" : ""} ${state.openNote === t.id ? "note-open" : ""}" data-id="${t.id}">
+      <span class="rank">${String(idx).padStart(2,"0")}</span>
+      <input class="check" type="checkbox" ${done ? "checked" : ""} aria-label="Mark done" />
+      <div class="body">
+        <span class="title-line">${t.title}</span>
+        <p class="reason" style="margin:0">${t.reason}</p>
+        ${na}
+        <div class="meta-line">
+          ${chipPath(t.path)}
+          ${statusChip(t.status)}
+          ${scoreDisplay(t.score, t.source)}
+          ${tagChips(t.tags)}
+        </div>
+        <div class="quick-note">
+          <input placeholder="Add a quick note…" />
+          <button class="btn sm primary">Comment</button>
+          <button class="btn sm" data-close-note="${t.id}">Cancel</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn sm">${t.nextAction ? "Edit next" : "Add next"}</button>
+        <button class="btn sm">Waiting</button>
+        <button class="btn sm" data-dismiss="${t.id}">Dismiss</button>
+        <button class="icon-btn" title="Note" data-note="${t.id}">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h12M4 10h12M4 15h7"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function render() {
+  const host = document.getElementById("plan");
+  const parts = [];
+
+  for (const g of GROUPS) {
+    const items = PLAN.filter(p => p.groupKey === g.key);
+    if (!items.length) continue;
+    parts.push(`
+      <div class="group">
+        <div class="group-head">
+          <span class="gtitle">${g.title}</span>
+          <span class="desc">— ${g.desc}</span>
+          <span class="n">${items.length}</span>
+        </div>
+        ${items.map((it, i) => itemRow(it, i + 1)).join("")}
+      </div>
+    `);
+  }
+  host.innerHTML = parts.join("");
+
+  host.querySelectorAll(".check").forEach(cb => {
+    cb.addEventListener("change", (e) => {
+      const id = e.target.closest(".item").dataset.id;
+      if (e.target.checked) state.done.add(id); else state.done.delete(id);
+      render();
+    });
+  });
+  host.querySelectorAll("[data-note]").forEach(b => {
+    b.addEventListener("click", () => {
+      state.openNote = state.openNote === b.dataset.note ? null : b.dataset.note;
+      render();
+    });
+  });
+  host.querySelectorAll("[data-close-note]").forEach(b => {
+    b.addEventListener("click", () => { state.openNote = null; render(); });
+  });
+}
+
+/* Lens */
+document.querySelectorAll("#lensSeg button").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("#lensSeg button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    state.lens = b.dataset.val;
+  });
+});
+
+/* Tweaks */
+const panel = document.getElementById("tweaksPanel");
+document.getElementById("tweaksBtn").addEventListener("click", () => panel.classList.toggle("open"));
+document.getElementById("tweaksClose").addEventListener("click", () => panel.classList.remove("open"));
+
+function syncTweakUI() {
+  document.querySelectorAll(".tweak-seg").forEach(seg => {
+    const key = seg.dataset.tweak;
+    seg.querySelectorAll("button").forEach(b => b.classList.toggle("active", String(state.tweaks[key]) === b.dataset.val));
+  });
+  document.querySelectorAll(".tweak-swatches").forEach(group => {
+    const key = group.dataset.tweak;
+    group.querySelectorAll("button").forEach(b => b.classList.toggle("active", state.tweaks[key] === b.dataset.val));
+  });
+}
+document.querySelectorAll("[data-tweak]").forEach(group => {
+  const key = group.dataset.tweak;
+  group.querySelectorAll("button").forEach(b => {
+    b.addEventListener("click", () => {
+      let v = b.dataset.val;
+      if (v === "true") v = true;
+      else if (v === "false") v = false;
+      state.tweaks[key] = v;
+      applyTweaks();
+      syncTweakUI();
+      try { window.parent.postMessage({ type: "__edit_mode_set_keys", edits: { [key]: v } }, "*"); } catch (_) {}
+    });
+  });
+});
+window.addEventListener("message", (e) => {
+  const t = e?.data?.type;
+  if (t === "__activate_edit_mode") panel.classList.add("open");
+  else if (t === "__deactivate_edit_mode") panel.classList.remove("open");
+});
+try { window.parent.postMessage({ type: "__edit_mode_available" }, "*"); } catch (_) {}
+
+applyTweaks();
+syncTweakUI();
+render();
+</script>
+</body>
+</html>

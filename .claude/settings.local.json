@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(mkdir -p /tmp/design-extract)",
+      "Read(//tmp/**)",
+      "Bash(cp \"/c/Users/jryan/.claude/projects/C--Users-jryan-Development-ProdAndPri--claude-worktrees-condescending-lamarr-2a88b3/bb9f7a92-d30c-4027-b345-b0752763c81b/tool-results/webfetch-1776691935199-byvc01.bin\" ./design.tar.gz)",
+      "Bash(tar -xzf design.tar.gz)",
+      "Bash(cp -r /tmp/design-extract/prodnpri/project/* C:/Users/jryan/Development/ProdAndPri/.claude/worktrees/condescending-lamarr-2a88b3/.design-source/)",
+      "Bash(npx.cmd tsc *)",
+      "Bash(npx.cmd eslint *)",
+      "Bash(npm run *)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 23116 //F)"
+    ]
+  }
+}

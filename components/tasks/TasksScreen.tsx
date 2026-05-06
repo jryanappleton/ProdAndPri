@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { useAppState } from "@/components/shared/AppStateProvider";
-import { StatusBadge } from "@/components/shared/StatusBadge";
-import { TagPill } from "@/components/shared/TagPill";
+
+type StatusFilter = "all" | "open" | "waiting_on" | "done";
 
 export function TasksScreen() {
   const {
@@ -22,16 +22,21 @@ export function TasksScreen() {
     getListName,
     getTagNames
   } = useAppState();
+
   const [activeArea, setActiveArea] = useState<string | "all">("all");
   const [activeList, setActiveList] = useState<string | "all">("all");
-  const [activeStatus, setActiveStatus] = useState<"all" | "open" | "waiting_on" | "done">("open");
+  const [activeStatus, setActiveStatus] = useState<StatusFilter>("open");
   const [query, setQuery] = useState("");
-  const [newAreaName, setNewAreaName] = useState("");
+  const [collapsedAreas, setCollapsedAreas] = useState<Record<string, boolean>>({});
+  const [addingListFor, setAddingListFor] = useState<string | null>(null);
   const [listDrafts, setListDrafts] = useState<Record<string, string>>({});
+  const [showingAddArea, setShowingAddArea] = useState(false);
+  const [newAreaName, setNewAreaName] = useState("");
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dropListId, setDropListId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [nextActionDrafts, setNextActionDrafts] = useState<Record<string, string>>({});
+
   const defaultExcludedTagId = useMemo(
     () =>
       state.tags.find((tag) => tag.name.trim().toLowerCase() === "lowpri - exclude from today")
@@ -46,15 +51,48 @@ export function TasksScreen() {
     if (hasTouchedTagFilters || !defaultExcludedTagId) {
       return excludedTagIds;
     }
-
     return excludedTagIds.includes(defaultExcludedTagId)
       ? excludedTagIds
       : [...excludedTagIds, defaultExcludedTagId];
   }, [defaultExcludedTagId, excludedTagIds, hasTouchedTagFilters]);
 
+  const nonInboxTasks = useMemo(
+    () => state.tasks.filter((task) => !task.isInbox),
+    [state.tasks]
+  );
+
+  const areaCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of nonInboxTasks) {
+      if (!task.areaId) continue;
+      if (task.status === "done") continue;
+      if (effectiveExcludedTagIds.some((id) => task.tagIds.includes(id))) continue;
+      counts[task.areaId] = (counts[task.areaId] ?? 0) + 1;
+    }
+    return counts;
+  }, [nonInboxTasks, effectiveExcludedTagIds]);
+
+  const listCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of nonInboxTasks) {
+      if (!task.listId) continue;
+      if (task.status === "done") continue;
+      if (effectiveExcludedTagIds.some((id) => task.tagIds.includes(id))) continue;
+      counts[task.listId] = (counts[task.listId] ?? 0) + 1;
+    }
+    return counts;
+  }, [nonInboxTasks, effectiveExcludedTagIds]);
+
+  const allCount = useMemo(() => {
+    return nonInboxTasks.filter(
+      (task) =>
+        task.status !== "done" &&
+        !effectiveExcludedTagIds.some((id) => task.tagIds.includes(id))
+    ).length;
+  }, [nonInboxTasks, effectiveExcludedTagIds]);
+
   const filteredTasks = useMemo(() => {
-    return state.tasks.filter((task) => {
-      if (task.isInbox) return false;
+    return nonInboxTasks.filter((task) => {
       if (activeArea !== "all" && task.areaId !== activeArea) return false;
       if (activeList !== "all" && task.listId !== activeList) return false;
       if (activeStatus !== "all" && task.status !== activeStatus) return false;
@@ -69,24 +107,27 @@ export function TasksScreen() {
       }
       return true;
     });
-  }, [activeArea, activeList, activeStatus, effectiveExcludedTagIds, query, state.tasks]);
+  }, [activeArea, activeList, activeStatus, effectiveExcludedTagIds, query, nonInboxTasks]);
 
+  const activeAreaName =
+    activeArea === "all" ? null : state.areas.find((a) => a.id === activeArea)?.name ?? null;
   const activeListName =
     activeList === "all"
       ? null
       : state.lists.find((list) => list.id === activeList)?.name ?? null;
-  const visibleLists = useMemo(() => {
-    if (activeArea === "all") {
-      return state.lists;
-    }
 
-    return state.lists.filter((list) => list.areaId === activeArea);
-  }, [activeArea, state.lists]);
+  const excludedTagNames = useMemo(() => {
+    return effectiveExcludedTagIds
+      .map((id) => state.tags.find((tag) => tag.id === id)?.name)
+      .filter((name): name is string => Boolean(name));
+  }, [effectiveExcludedTagIds, state.tags]);
 
   async function handleCreateArea(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!newAreaName.trim()) return;
     await createArea(newAreaName);
     setNewAreaName("");
+    setShowingAddArea(false);
   }
 
   async function handleDeleteArea(areaId: string, areaName: string) {
@@ -112,7 +153,30 @@ export function TasksScreen() {
     }
   }
 
-  function startEditingNextAction(taskId: string, currentValue: string) {
+  async function handleAddList(event: FormEvent<HTMLFormElement>, areaId: string) {
+    event.preventDefault();
+    const draft = listDrafts[areaId]?.trim();
+    if (!draft) return;
+    await createList(areaId, draft);
+    setListDrafts((current) => ({ ...current, [areaId]: "" }));
+    setAddingListFor(null);
+  }
+
+  function toggleArea(areaId: string) {
+    setCollapsedAreas((current) => ({ ...current, [areaId]: !current[areaId] }));
+  }
+
+  function selectArea(areaId: string) {
+    setActiveArea(areaId);
+    setActiveList("all");
+  }
+
+  function selectList(areaId: string, listId: string) {
+    setActiveArea(areaId);
+    setActiveList(listId);
+  }
+
+  function beginEditingNextAction(taskId: string, currentValue: string) {
     setEditingTaskId(taskId);
     setNextActionDrafts((current) => ({
       ...current,
@@ -123,7 +187,6 @@ export function TasksScreen() {
   async function saveNextAction(taskId: string) {
     const task = state.tasks.find((entry) => entry.id === taskId);
     if (!task) return;
-
     await updateTask({
       taskId,
       title: task.title,
@@ -136,344 +199,188 @@ export function TasksScreen() {
     setEditingTaskId(null);
   }
 
-  return (
-    <div className="tasks-layout">
-      <aside className="panel hierarchy-panel desktop-only">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Hierarchy</p>
-            <h3>Areas & lists</h3>
-          </div>
-        </div>
-        <form className="inline-create-form" onSubmit={handleCreateArea}>
-          <input
-            value={newAreaName}
-            onChange={(event) => setNewAreaName(event.target.value)}
-            placeholder="Create an area..."
-            disabled={isSaving}
-          />
-          <button type="submit" disabled={isSaving}>
-            Add area
-          </button>
-        </form>
-        {!state.areas.length ? (
-          <p className="muted-copy">
-            Start by creating your first area. Lists can be added underneath each area.
-          </p>
-        ) : null}
-        <button
-          type="button"
-          className={activeArea === "all" ? "hierarchy-item active" : "hierarchy-item"}
-          onClick={() => {
-            setActiveArea("all");
-            setActiveList("all");
-          }}
-        >
-          All areas
-        </button>
-        {state.areas.map((area) => (
-          <div key={area.id} className="hierarchy-group">
-            <div className="hierarchy-row">
-              <button
-                type="button"
-                className={activeArea === area.id ? "hierarchy-item active" : "hierarchy-item"}
-                onClick={() => {
-                  setActiveArea(area.id);
-                  setActiveList("all");
-                }}
-              >
-                {area.name}
-              </button>
-              <button
-                type="button"
-                className="icon-button danger-icon-button"
-                aria-label={`Delete area ${area.name}`}
-                title={`Delete area ${area.name}`}
-                disabled={isSaving}
-                onClick={() => handleDeleteArea(area.id, area.name)}
-              >
-                🗑
-              </button>
-            </div>
-            <div className="hierarchy-children">
-              {state.lists
-                .filter((list) => list.areaId === area.id)
-                .map((list) => (
-                  <div key={list.id} className="hierarchy-child-row">
-                    <button
-                      type="button"
-                      className={
-                        activeList === list.id
-                          ? `hierarchy-child hierarchy-child-active${dropListId === list.id ? " hierarchy-child-drop" : ""}`
-                          : dropListId === list.id
-                            ? "hierarchy-child hierarchy-child-drop"
-                            : "hierarchy-child"
-                      }
-                      onClick={() => {
-                        setActiveArea(area.id);
-                        setActiveList(list.id);
-                      }}
-                      onDragOver={(event) => {
-                        if (!draggingTaskId) return;
-                        event.preventDefault();
-                        setDropListId(list.id);
-                      }}
-                      onDragLeave={() => {
-                        if (dropListId === list.id) {
-                          setDropListId(null);
-                        }
-                      }}
-                      onDrop={async (event) => {
-                        if (!draggingTaskId) return;
-                        event.preventDefault();
-                        setDropListId(null);
-                        setDraggingTaskId(null);
-                        await updateTaskPlacement(draggingTaskId, area.id, list.id);
-                      }}
-                    >
-                      {list.name}
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-button danger-icon-button icon-button-small"
-                      aria-label={`Delete list ${list.name}`}
-                      title={`Delete list ${list.name}`}
-                      disabled={isSaving}
-                      onClick={() => handleDeleteList(list.id, list.name)}
-                    >
-                      🗑
-                    </button>
-                  </div>
-                ))}
-              <form
-                className="inline-create-form inline-create-form-compact"
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  await createList(area.id, listDrafts[area.id] ?? "");
-                  setListDrafts((current) => ({ ...current, [area.id]: "" }));
-                }}
-              >
-                <input
-                  value={listDrafts[area.id] ?? ""}
-                  onChange={(event) =>
-                    setListDrafts((current) => ({
-                      ...current,
-                      [area.id]: event.target.value
-                    }))
-                  }
-                  placeholder="Add a list..."
-                  disabled={isSaving}
-                />
-                <button type="submit" disabled={isSaving}>
-                  Add
-                </button>
-              </form>
-            </div>
-          </div>
-        ))}
-      </aside>
+  function toggleExcludedTag(tagId: string) {
+    setHasTouchedTagFilters(true);
+    setExcludedTagIds((current) =>
+      current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId]
+    );
+  }
 
-      <section className="panel tasks-panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">All Tasks</p>
-            <h3>System of record ({filteredTasks.length})</h3>
-            {activeListName ? (
-              <p className="muted-copy">Filtered to list: {activeListName}</p>
-            ) : null}
-          </div>
-          <div className="tasks-filter-panel desktop-only">
-            <p className="eyebrow">Exclude tags</p>
-            <div className="tag-row">
-              {state.tags.length ? (
-                state.tags.map((tag) => {
-                  const excluded = effectiveExcludedTagIds.includes(tag.id);
-                  return (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      className={excluded ? "lens-chip active" : "lens-chip"}
-                      onClick={() => {
-                        setHasTouchedTagFilters(true);
-                        setExcludedTagIds((current) =>
-                          current.includes(tag.id)
-                            ? current.filter((id) => id !== tag.id)
-                            : [...current, tag.id]
-                        );
-                      }}
-                      disabled={isSaving}
-                    >
-                      {tag.name}
-                    </button>
-                  );
-                })
-              ) : (
-                <span className="count-chip">No tags</span>
-              )}
-            </div>
-          </div>
+  const statusSegs: { value: StatusFilter; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "open", label: "Open" },
+    { value: "waiting_on", label: "Waiting" },
+    { value: "done", label: "Done" }
+  ];
+
+  const pageTitle = activeListName ?? activeAreaName ?? "All tasks";
+  const countLabel =
+    activeStatus === "open"
+      ? `${filteredTasks.length} open`
+      : activeStatus === "waiting_on"
+        ? `${filteredTasks.length} waiting`
+        : activeStatus === "done"
+          ? `${filteredTasks.length} done`
+          : `${filteredTasks.length}`;
+  const subtitle = activeListName
+    ? `Tasks in ${activeListName}.`
+    : activeAreaName
+      ? `Tasks across ${activeAreaName}.`
+      : "Your system of record across every area and list.";
+
+  return (
+    <div className="layout">
+      <aside className="sidebar">
+        <div className="side-head">
+          <h2>Areas</h2>
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => setShowingAddArea((v) => !v)}
+            disabled={isSaving}
+          >
+            ＋ New area
+          </button>
         </div>
-        <div className="mobile-tasks-toolbar mobile-only">
-          <div className="mobile-filter-grid">
-            <label className="field-block">
-              <span className="eyebrow">Search</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search titles and notes..."
-              />
-            </label>
-            <label className="field-block">
-              <span className="eyebrow">Status</span>
-              <select
-                value={activeStatus}
-                onChange={(event) =>
-                  setActiveStatus(event.target.value as "all" | "open" | "waiting_on" | "done")
-                }
-              >
-                <option value="all">All statuses</option>
-                <option value="open">Open</option>
-                <option value="waiting_on">Waiting On</option>
-                <option value="done">Done</option>
-              </select>
-            </label>
-            <label className="field-block">
-              <span className="eyebrow">Area</span>
-              <select
-                value={activeArea}
-                onChange={(event) => {
-                  const nextArea = event.target.value as string | "all";
-                  setActiveArea(nextArea);
-                  setActiveList("all");
-                }}
-              >
-                <option value="all">All areas</option>
-                {state.areas.map((area) => (
-                  <option key={area.id} value={area.id}>
-                    {area.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field-block">
-              <span className="eyebrow">List</span>
-              <select
-                value={activeList}
-                onChange={(event) => setActiveList(event.target.value as string | "all")}
-              >
-                <option value="all">All lists</option>
-                {visibleLists.map((list) => (
-                  <option key={list.id} value={list.id}>
-                    {list.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+
+        {showingAddArea ? (
+          <form className="add-area-form" onSubmit={handleCreateArea}>
+            <input
+              autoFocus
+              value={newAreaName}
+              onChange={(event) => setNewAreaName(event.target.value)}
+              placeholder="Area name"
+              disabled={isSaving}
+            />
+            <button type="submit" className="btn sm" disabled={isSaving}>
+              Add
+            </button>
+          </form>
+        ) : null}
+
+        <div className="tree">
+          <div
+            className={`all-row${activeArea === "all" ? " selected" : ""}`}
+            onClick={() => {
+              setActiveArea("all");
+              setActiveList("all");
+            }}
+            role="button"
+            tabIndex={0}
+          >
+            <span className="caret" aria-hidden="true" />
+            <span className="label">All tasks</span>
+            <span className="count">{allCount}</span>
           </div>
-          <div className="tasks-filter-panel">
-            <p className="eyebrow">Exclude tags</p>
-            <div className="tag-row">
-              {state.tags.length ? (
-                state.tags.map((tag) => {
-                  const excluded = effectiveExcludedTagIds.includes(tag.id);
-                  return (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      className={excluded ? "lens-chip active" : "lens-chip"}
-                      onClick={() => {
-                        setHasTouchedTagFilters(true);
-                        setExcludedTagIds((current) =>
-                          current.includes(tag.id)
-                            ? current.filter((id) => id !== tag.id)
-                            : [...current, tag.id]
-                        );
-                      }}
-                      disabled={isSaving}
-                    >
-                      {tag.name}
-                    </button>
-                  );
-                })
-              ) : (
-                <span className="count-chip">No tags</span>
-              )}
-            </div>
-          </div>
-          <details className="task-accordion">
-            <summary>Organize areas and lists</summary>
-            <div className="mobile-organize-stack">
-              <form className="inline-create-form" onSubmit={handleCreateArea}>
-                <input
-                  value={newAreaName}
-                  onChange={(event) => setNewAreaName(event.target.value)}
-                  placeholder="Create an area..."
-                  disabled={isSaving}
-                />
-                <button type="submit" disabled={isSaving}>
-                  Add area
-                </button>
-              </form>
-              {state.areas.map((area) => (
-                <div key={area.id} className="mobile-area-card">
-                  <div className="mobile-area-header">
-                    <button
-                      type="button"
-                      className={activeArea === area.id ? "hierarchy-item active" : "hierarchy-item"}
-                      onClick={() => {
-                        setActiveArea(area.id);
-                        setActiveList("all");
-                      }}
-                    >
-                      {area.name}
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button danger-text-button"
-                      disabled={isSaving}
-                      onClick={() => handleDeleteArea(area.id, area.name)}
-                    >
-                      Delete area
-                    </button>
-                  </div>
-                  <div className="mobile-list-stack">
-                    {state.lists
-                      .filter((list) => list.areaId === area.id)
-                      .map((list) => (
-                        <div key={list.id} className="mobile-list-row">
-                          <button
-                            type="button"
-                            className={
-                              activeList === list.id
-                                ? "hierarchy-child hierarchy-child-active"
-                                : "hierarchy-child"
-                            }
-                            onClick={() => {
-                              setActiveArea(area.id);
-                              setActiveList(list.id);
-                            }}
-                          >
-                            {list.name}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button danger-text-button"
-                            disabled={isSaving}
-                            onClick={() => handleDeleteList(list.id, list.name)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      ))}
+
+          {state.areas.map((area) => {
+            const areaLists = state.lists.filter((list) => list.areaId === area.id);
+            const collapsed = collapsedAreas[area.id];
+            const areaSelected = activeArea === area.id && activeList === "all";
+            return (
+              <div key={area.id} className="area">
+                <div
+                  className={`area-row${areaSelected ? " selected" : ""}`}
+                  onClick={() => selectArea(area.id)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <button
+                    type="button"
+                    className={`caret${collapsed ? " collapsed" : ""}`}
+                    aria-label={collapsed ? "Expand area" : "Collapse area"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleArea(area.id);
+                    }}
+                  >
+                    <svg viewBox="0 0 10 10" aria-hidden="true">
+                      <path
+                        d="M2 4l3 3 3-3"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <span className="label">{area.name}</span>
+                  <span className="count">{areaCounts[area.id] ?? 0}</span>
+                  <button
+                    type="button"
+                    className="row-action danger"
+                    aria-label={`Delete ${area.name}`}
+                    title={`Delete ${area.name}`}
+                    disabled={isSaving}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteArea(area.id, area.name);
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M3 4h10M6 4V3h4v1M5 4l.5 9a1 1 0 001 1h3a1 1 0 001-1L11 4" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className={`children${collapsed ? " collapsed" : ""}`}>
+                  {areaLists.map((list) => {
+                    const listSelected = activeList === list.id;
+                    const isDropTarget = dropListId === list.id;
+                    return (
+                      <div
+                        key={list.id}
+                        className={`list-row${listSelected ? " selected" : ""}${isDropTarget ? " drop-target" : ""}`}
+                        onClick={() => selectList(area.id, list.id)}
+                        role="button"
+                        tabIndex={0}
+                        onDragOver={(event) => {
+                          if (!draggingTaskId) return;
+                          event.preventDefault();
+                          setDropListId(list.id);
+                        }}
+                        onDragLeave={() => {
+                          if (dropListId === list.id) {
+                            setDropListId(null);
+                          }
+                        }}
+                        onDrop={async (event) => {
+                          if (!draggingTaskId) return;
+                          event.preventDefault();
+                          setDropListId(null);
+                          setDraggingTaskId(null);
+                          await updateTaskPlacement(draggingTaskId, area.id, list.id);
+                        }}
+                      >
+                        <span className="label">{list.name}</span>
+                        <span className="count">{listCounts[list.id] ?? 0}</span>
+                        <button
+                          type="button"
+                          className="row-action danger"
+                          aria-label={`Delete ${list.name}`}
+                          title={`Delete ${list.name}`}
+                          disabled={isSaving}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteList(list.id, list.name);
+                          }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                            <path d="M3 4h10M6 4V3h4v1M5 4l.5 9a1 1 0 001 1h3a1 1 0 001-1L11 4" />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {addingListFor === area.id ? (
                     <form
-                      className="inline-create-form"
-                      onSubmit={async (event) => {
-                        event.preventDefault();
-                        await createList(area.id, listDrafts[area.id] ?? "");
-                        setListDrafts((current) => ({ ...current, [area.id]: "" }));
-                      }}
+                      className="add-list-form"
+                      onSubmit={(event) => handleAddList(event, area.id)}
                     >
                       <input
+                        autoFocus
                         value={listDrafts[area.id] ?? ""}
                         onChange={(event) =>
                           setListDrafts((current) => ({
@@ -481,84 +388,213 @@ export function TasksScreen() {
                             [area.id]: event.target.value
                           }))
                         }
-                        placeholder="Add a list..."
+                        placeholder="List name"
+                        onBlur={() => {
+                          if (!listDrafts[area.id]?.trim()) {
+                            setAddingListFor(null);
+                          }
+                        }}
                         disabled={isSaving}
                       />
-                      <button type="submit" disabled={isSaving}>
+                      <button type="submit" className="btn sm" disabled={isSaving}>
                         Add
                       </button>
                     </form>
-                  </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="add-list"
+                      onClick={() => setAddingListFor(area.id)}
+                      disabled={isSaving}
+                    >
+                      <span className="plus">+</span>
+                      Add a list
+                    </button>
+                  )}
                 </div>
-              ))}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="tree-footer">
+          <div className="side-head">
+            <h2>Exclude tags</h2>
+          </div>
+          <div className="tag-cloud">
+            {state.tags.length ? (
+              state.tags.map((tag) => {
+                const excluded = effectiveExcludedTagIds.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    className={excluded ? "excluded" : undefined}
+                    onClick={() => toggleExcludedTag(tag.id)}
+                    disabled={isSaving}
+                  >
+                    {tag.name}
+                  </button>
+                );
+              })
+            ) : (
+              <span className="muted-note">No tags yet</span>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      <main className="main">
+        <div className="main-head">
+          <div>
+            <div className="crumbs">
+              <span>All Tasks</span>
+              {activeAreaName ? (
+                <>
+                  <span className="sep">/</span>
+                  <span>{activeAreaName}</span>
+                </>
+              ) : null}
+              {activeListName ? (
+                <>
+                  <span className="sep">/</span>
+                  <span>{activeListName}</span>
+                </>
+              ) : null}
             </div>
-          </details>
+            <h1 className="title">
+              {pageTitle} <span className="count">{countLabel}</span>
+            </h1>
+            <p className="title-sub">{subtitle}</p>
+          </div>
         </div>
-        <div className="filter-row desktop-only">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search titles and notes..."
-          />
-          <select
-            value={activeStatus}
-            onChange={(event) =>
-              setActiveStatus(event.target.value as "all" | "open" | "waiting_on" | "done")
-            }
-          >
-            <option value="all">All statuses</option>
-            <option value="open">Open</option>
-            <option value="waiting_on">Waiting On</option>
-            <option value="done">Done</option>
-          </select>
-        </div>
-        <div className="task-row-stack">
-          {filteredTasks.length ? (
-            filteredTasks.map((task) => (
-              <article
-                key={task.id}
-                className="task-row"
-                draggable
-                onDragStart={() => setDraggingTaskId(task.id)}
-                onDragEnd={() => {
-                  setDraggingTaskId(null);
-                  setDropListId(null);
-                }}
+
+        <div className="filter-strip">
+          <div className="search">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              style={{ color: "var(--muted)" }}
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="9" r="6" />
+              <path d="m17 17-3.5-3.5" />
+            </svg>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search titles and notes…"
+            />
+          </div>
+          <div className="seg" role="tablist">
+            {statusSegs.map((seg) => (
+              <button
+                key={seg.value}
+                type="button"
+                className={activeStatus === seg.value ? "active" : undefined}
+                onClick={() => setActiveStatus(seg.value)}
               >
-                  <div className="task-row-main">
-                    <div className="task-row-top">
-                      <span className="drag-handle desktop-only" aria-hidden="true">
-                        ::
+                {seg.label}
+              </button>
+            ))}
+          </div>
+          {excludedTagNames.length ? (
+            <span className="excluded-note">
+              Excluding <strong>{excludedTagNames.join(", ")}</strong>
+            </span>
+          ) : null}
+        </div>
+
+        <div className="task-list">
+          {filteredTasks.length ? (
+            filteredTasks.map((task) => {
+              const isWaiting = task.status === "waiting_on";
+              const isDone = task.status === "done";
+              const tagNames = getTagNames(task.tagIds);
+              return (
+                <article
+                  key={task.id}
+                  className={`task${isWaiting ? " waiting" : ""}${isDone ? " done" : ""}`}
+                  draggable
+                  onDragStart={() => setDraggingTaskId(task.id)}
+                  onDragEnd={() => {
+                    setDraggingTaskId(null);
+                    setDropListId(null);
+                  }}
+                >
+                  <span className="handle" aria-hidden="true">⋮⋮</span>
+                  <input
+                    type="checkbox"
+                    className="check"
+                    checked={isDone}
+                    disabled={isSaving}
+                    aria-label={`Mark ${task.title} done`}
+                    onChange={(event) =>
+                      setTaskStatus(task.id, event.target.checked ? "done" : "open")
+                    }
+                  />
+                  <div className="task-body">
+                    <Link href={`/tasks/${task.id}`} className="title-line">
+                      {task.title}
+                    </Link>
+                    {task.nextAction ? (
+                      <div className="next-action">
+                        <span className="marker">Next →</span>
+                        <span>{task.nextAction}</span>
+                      </div>
+                    ) : (
+                      <div className="next-action empty">
+                        <span className="marker">Next →</span>
+                        <span>No next action yet</span>
+                      </div>
+                    )}
+                    <div className="meta-line">
+                      <span className="chip path">
+                        <span className="area">{getAreaName(task.areaId)}</span>
+                        {task.listId ? (
+                          <>
+                            <span className="sep">/</span>
+                            {getListName(task.listId)}
+                          </>
+                        ) : null}
                       </span>
-                      <StatusBadge status={task.status} />
-                      <span className="count-chip task-location-chip">
-                        {getAreaName(task.areaId)}
-                        {task.listId ? ` / ${getListName(task.listId)}` : ""}
-                      </span>
+                      {isWaiting ? (
+                        <span className="chip status-waiting_on">
+                          Waiting{task.waitingSince ? ` · ${task.waitingSince}` : ""}
+                        </span>
+                      ) : null}
+                      {isDone ? <span className="chip status-done">Done</span> : null}
+                      {task.dueDate ? <span className="chip due">Due {task.dueDate}</span> : null}
+                      {task.githubLink ? (
+                        <span className="chip">GH #{task.githubLink.issueNumber}</span>
+                      ) : null}
+                      {tagNames.map((tag) => (
+                        <span key={tag} className="chip tag">
+                          {tag}
+                        </span>
+                      ))}
                     </div>
-                  <Link href={`/tasks/${task.id}`}>
-                    <h4>{task.title}</h4>
-                  </Link>
-                  <p className="task-next-action">
-                    <strong>Next Action:</strong>{" "}
-                    {task.nextAction || "No next action yet."}
-                  </p>
-                  {editingTaskId === task.id ? (
-                    <div className="inline-edit-row">
-                      <input
-                        value={nextActionDrafts[task.id] ?? ""}
-                        onChange={(event) =>
-                          setNextActionDrafts((current) => ({
-                            ...current,
-                            [task.id]: event.target.value
-                          }))
-                        }
-                        placeholder="Define the next concrete step..."
-                        disabled={isSaving}
-                      />
-                      <div className="action-row">
+                    {editingTaskId === task.id ? (
+                      <div className="inline-edit">
+                        <input
+                          autoFocus
+                          value={nextActionDrafts[task.id] ?? ""}
+                          onChange={(event) =>
+                            setNextActionDrafts((current) => ({
+                              ...current,
+                              [task.id]: event.target.value
+                            }))
+                          }
+                          placeholder="Define the next concrete step…"
+                          disabled={isSaving}
+                        />
                         <button
                           type="button"
+                          className="btn sm"
                           onClick={() => saveNextAction(task.id)}
                           disabled={isSaving}
                         >
@@ -566,122 +602,76 @@ export function TasksScreen() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditingTaskId(null);
-                            setNextActionDrafts((current) => ({
-                              ...current,
-                              [task.id]: task.nextAction
-                            }));
-                          }}
+                          className="btn sm ghost"
+                          onClick={() => setEditingTaskId(null)}
                           disabled={isSaving}
                         >
                           Cancel
                         </button>
                       </div>
-                    </div>
-                  ) : null}
-                  <div className="tag-row">
-                    {getTagNames(task.tagIds).map((tag) => (
-                      <TagPill key={tag} label={tag} />
-                    ))}
+                    ) : null}
                   </div>
-                  <details className="task-accordion mobile-only">
-                    <summary>Manage task</summary>
-                    <div className="task-manage-stack">
-                      <div className="action-row">
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => startEditingNextAction(task.id, task.nextAction)}
-                          disabled={isSaving}
-                        >
-                          {task.nextAction ? "Edit next action" : "Add next action"}
-                        </button>
-                        {task.status !== "done" ? (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() => setTaskStatus(task.id, "done")}
-                            disabled={isSaving}
-                          >
-                            Mark done
-                          </button>
-                        ) : null}
-                        {task.status !== "waiting_on" ? (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() => setTaskStatus(task.id, "waiting_on")}
-                            disabled={isSaving}
-                          >
-                            Waiting on
-                          </button>
-                        ) : null}
-                        {task.status !== "open" ? (
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() => setTaskStatus(task.id, "open")}
-                            disabled={isSaving}
-                          >
-                            Mark open
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="ghost-button danger-text-button"
-                          onClick={() => deleteTask(task.id)}
-                          disabled={isSaving}
-                        >
-                          Delete task
-                        </button>
-                      </div>
-                      <p className="task-path">
-                        To move this task to another area or list, open the full task page.
-                      </p>
-                    </div>
-                  </details>
-                </div>
-                <div className="task-row-meta desktop-only">
-                  <button
-                    type="button"
-                    onClick={() => startEditingNextAction(task.id, task.nextAction)}
-                    disabled={isSaving}
-                  >
-                    {task.nextAction ? "Edit next action" : "Add next action"}
-                  </button>
-                  {task.status !== "done" ? (
+                  <div className="task-actions">
                     <button
                       type="button"
-                      className="secondary-button"
-                      onClick={() => setTaskStatus(task.id, "done")}
+                      className="btn sm"
+                      onClick={() => beginEditingNextAction(task.id, task.nextAction)}
                       disabled={isSaving}
                     >
-                      Mark done
+                      {task.nextAction ? "Edit next" : "Add next"}
                     </button>
-                  ) : null}
-                  {task.dueDate ? <span>Due soon</span> : null}
-                  {task.githubLink ? <span>GitHub #{task.githubLink.issueNumber}</span> : null}
-                </div>
-              </article>
-            ))
+                    {!isDone ? (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => setTaskStatus(task.id, "done")}
+                        disabled={isSaving}
+                      >
+                        Done
+                      </button>
+                    ) : null}
+                    {!isWaiting && !isDone ? (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => setTaskStatus(task.id, "waiting_on")}
+                        disabled={isSaving}
+                      >
+                        Waiting
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => {
+                        if (window.confirm(`Delete "${task.title}"?`)) {
+                          deleteTask(task.id);
+                        }
+                      }}
+                      disabled={isSaving}
+                      title="Delete task"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              );
+            })
           ) : (
-            <div className="empty-card">
-              <h4>{state.tasks.length ? "No tasks match these filters" : "No tasks yet"}</h4>
-              <p>
-                {state.tasks.length
-                  ? "Try changing the search, status, area, list, or excluded tags."
-                  : "Capture a few tasks, then organize them into the areas and lists you create here."}
-              </p>
+            <div className="empty-state">
+              {nonInboxTasks.length
+                ? "No tasks match these filters."
+                : "No tasks yet. Capture some, then organize them into areas and lists."}
             </div>
           )}
         </div>
+
         {draggingTaskId ? (
-          <p className="muted-copy desktop-only">
-            Dragging task. Drop it onto a list in the hierarchy rail to move it.
+          <p className="drag-hint">
+            Dragging task — drop onto a list in the rail to move it.
           </p>
         ) : null}
-      </section>
+      </main>
     </div>
   );
 }

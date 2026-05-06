@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { useAppState } from "@/components/shared/AppStateProvider";
-import { StatusBadge } from "@/components/shared/StatusBadge";
-import { TagPill } from "@/components/shared/TagPill";
 import { TodayLens } from "@/lib/types";
 
 const lenses: { value: TodayLens; label: string }[] = [
@@ -15,11 +13,29 @@ const lenses: { value: TodayLens; label: string }[] = [
   { value: "admin", label: "Admin" }
 ];
 
-const groupLabels = {
-  highest_leverage: "Highest Leverage",
-  quick_wins: "Quick Wins",
-  waiting_follow_up: "Waiting On Follow-Up"
+const groupMeta: Record<
+  "highest_leverage" | "quick_wins" | "waiting_follow_up",
+  { title: string; desc: string }
+> = {
+  highest_leverage: {
+    title: "Highest leverage",
+    desc: "where focused time pays off most."
+  },
+  quick_wins: {
+    title: "Quick wins",
+    desc: "small, satisfying clearings."
+  },
+  waiting_follow_up: {
+    title: "Waiting · follow-up",
+    desc: "nudges owed to other people."
+  }
 };
+
+const groupOrder: Array<"waiting_follow_up" | "quick_wins" | "highest_leverage"> = [
+  "waiting_follow_up",
+  "quick_wins",
+  "highest_leverage"
+];
 
 export function TodayScreen() {
   const {
@@ -31,27 +47,28 @@ export function TodayScreen() {
     addTodayFeedback,
     dismissFromToday,
     setTaskStatus,
-    addComment,
     updateTask,
     getAreaName,
     getListName,
     getTagNames
   } = useAppState();
   const [feedback, setFeedback] = useState("");
-  const [commentForTask, setCommentForTask] = useState<Record<string, string>>({});
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [nextActionDrafts, setNextActionDrafts] = useState<Record<string, string>>({});
-  const [mobileActionDrafts, setMobileActionDrafts] = useState<Record<string, string>>({});
 
   const grouped = useMemo(() => {
-    return todayPlan.items.reduce<Record<string, typeof todayPlan.items>>((acc, item) => {
-      const key = item.groupKey;
-      acc[key] = [...(acc[key] ?? []), item];
-      return acc;
-    }, {});
+    const map: Record<string, typeof todayPlan.items> = {};
+    for (const item of todayPlan.items) {
+      (map[item.groupKey] ??= []).push(item);
+    }
+    return map;
   }, [todayPlan]);
 
-  async function handleFeedback(event: FormEvent<HTMLFormElement>) {
+  const openCount = state.tasks.filter((task) => task.status === "open" && !task.isInbox).length;
+  const waitingCount = state.tasks.filter((task) => task.status === "waiting_on" && !task.isInbox).length;
+  const todayCount = todayPlan.items.length;
+
+  async function handleSteer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (feedback.trim()) {
       await addTodayFeedback(feedback);
@@ -77,165 +94,197 @@ export function TodayScreen() {
     setEditingTaskId(null);
   }
 
-  async function applyMobileAction(taskId: string) {
-    const action = mobileActionDrafts[taskId];
-    if (!action) return;
-
-    if (action === "edit_next_action") {
-      const task = state.tasks.find((entry) => entry.id === taskId);
-      if (!task) return;
-
-      setEditingTaskId(taskId);
-      setNextActionDrafts((current) => ({
-        ...current,
-        [taskId]: current[taskId] ?? task.nextAction
-      }));
-    } else if (action === "mark_done") {
-      await setTaskStatus(taskId, "done");
-    } else if (action === "mark_waiting") {
-      await setTaskStatus(taskId, "waiting_on");
-    } else if (action === "dismiss") {
-      await dismissFromToday(taskId);
-    }
-
-    setMobileActionDrafts((current) => ({
+  function beginEditing(taskId: string, currentValue: string) {
+    setEditingTaskId(taskId);
+    setNextActionDrafts((current) => ({
       ...current,
-      [taskId]: ""
+      [taskId]: current[taskId] ?? currentValue
     }));
   }
 
-  return (
-    <div className="page-stack">
-      <section className="hero-card">
-        <div className="hero-copy">
-          <p className="eyebrow">Today</p>
-          <h2>Your plan should feel calm, pointed, and realistic.</h2>
-          <p>{todayPlan.briefing}</p>
-        </div>
-        <div className="hero-side">
-          <div className="metric-card">
-            <span>Open tasks</span>
-            <strong>{state.tasks.filter((task) => task.status === "open").length}</strong>
-          </div>
-          <div className="metric-card">
-            <span>Waiting on</span>
-            <strong>{state.tasks.filter((task) => task.status === "waiting_on").length}</strong>
-          </div>
-        </div>
-      </section>
+  let globalRank = 0;
 
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Plan Controls</p>
-            <h3>Refresh or add optional emphasis</h3>
-            <p className="muted-copy">
-              Refresh rebuilds Today using your latest task changes. Lenses are optional
-              emphasis, not required input.
-            </p>
+  return (
+    <main className="page">
+      <header className="today-head">
+        <div>
+          <p className="eyebrow">
+            <span className="dot" aria-hidden="true" />
+            Today · {todayPlan.lens.charAt(0).toUpperCase() + todayPlan.lens.slice(1)} lens
+          </p>
+          <h1 className="today-title">Your plan should feel calm, pointed, and realistic.</h1>
+          <p className="today-sub">{todayPlan.briefing}</p>
+        </div>
+        <div className="stats">
+          <div className="stat">
+            <span className="n">{todayCount}</span>
+            <span className="l">On today</span>
           </div>
-          <div className="lens-select-wrap">
-            <label className="sr-only" htmlFor="lens-select">
-              Choose Today lens
-            </label>
-            <select
-              id="lens-select"
-              className="lens-select"
-              value={todayPlan.lens}
-              onChange={async (event) => setLens(event.target.value as TodayLens)}
+          <div className="stat">
+            <span className="n">{openCount}</span>
+            <span className="l">Open</span>
+          </div>
+          <div className="stat waiting">
+            <span className="n">{waitingCount}</span>
+            <span className="l">Waiting</span>
+          </div>
+        </div>
+      </header>
+
+      <section className="controls" aria-label="Plan controls">
+        <span className="label">Lens</span>
+        <div className="lens-seg" role="tablist">
+          {lenses.map((lens) => (
+            <button
+              key={lens.value}
+              type="button"
+              className={todayPlan.lens === lens.value ? "active" : undefined}
+              onClick={() => setLens(lens.value)}
               disabled={isSaving}
             >
-              {lenses.map((lens) => (
-                <option key={lens.value} value={lens.value}>
-                  {lens.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="lens-row">
-            {lenses.map((lens) => (
-              <button
-                key={lens.value}
-                className={todayPlan.lens === lens.value ? "lens-chip active" : "lens-chip"}
-                onClick={() => setLens(lens.value)}
-                disabled={isSaving}
-                type="button"
-              >
-                {lens.label}
-              </button>
-            ))}
-          </div>
+              {lens.label}
+            </button>
+          ))}
         </div>
-        <form className="feedback-form" onSubmit={handleFeedback}>
+        <form className="steer" onSubmit={handleSteer}>
+          <span className="label">Steer</span>
           <input
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
-            placeholder='Optional steering note: "Bias toward easier wins this morning"'
+            placeholder='Optional note: "bias toward easier wins this morning"'
             disabled={isSaving}
           />
-          <button type="submit" disabled={isSaving}>
-            {isSaving ? "Refreshing with AI..." : "Refresh plan"}
+          <button type="submit" className="btn sm" disabled={isSaving}>
+            {isSaving ? "Refreshing…" : "Refresh"}
           </button>
         </form>
-        {isSaving ? (
-          <p className="muted-copy">
-            Updating Today from your latest task changes. This is the part that waits on AI.
-          </p>
-        ) : null}
       </section>
 
-      <div className="today-grid">
-        {todayPlan.items.length ? Object.entries(grouped).map(([groupKey, items]) => (
-          <section className="panel" key={groupKey}>
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">Recommendation group</p>
-                <h3>{groupLabels[groupKey as keyof typeof groupLabels]}</h3>
+      <div className="meta-line-row">
+        <span className="updated">
+          <span className="pulse" aria-hidden="true" />
+          {isSaving ? "Updating plan" : "Plan up to date"}
+        </span>
+        <span>{todayCount} tasks picked · {state.tasks.filter((task) => !task.isInbox).length} total in system</span>
+      </div>
+
+      {todayPlan.briefing ? (
+        <div className="briefing">
+          <span className="kicker">Briefing</span>
+          <p>{todayPlan.briefing}</p>
+        </div>
+      ) : null}
+
+      {todayCount === 0 ? (
+        <div className="empty-state">
+          No Today plan yet. Capture work, file it out of Inbox, then refresh.
+        </div>
+      ) : (
+        groupOrder.map((groupKey) => {
+          const items = grouped[groupKey];
+          if (!items || !items.length) return null;
+          const meta = groupMeta[groupKey];
+
+          return (
+            <section className="group" key={groupKey}>
+              <div className="group-head">
+                <span className="gtitle">{meta.title}</span>
+                <span className="desc">— {meta.desc}</span>
+                <span className="n">{items.length}</span>
               </div>
-              <span className="count-chip">{items.length} tasks</span>
-            </div>
-            <div className="task-card-stack">
+
               {items.map((item) => {
                 const task = state.tasks.find((entry) => entry.id === item.taskId);
                 if (!task) return null;
+                globalRank += 1;
+                const rank = String(globalRank).padStart(2, "0");
+                const isWaiting = task.status === "waiting_on";
+                const isDone = task.status === "done";
+                const scorePct = Math.max(0, Math.min(100, Math.round(item.score * 20)));
 
                 return (
-                  <article key={task.id} className="task-card">
-                    <div className="task-card-heading">
-                      <StatusBadge status={task.status} />
-                    </div>
-                    <Link href={`/tasks/${task.id}`} className="task-title-link">
-                      {task.title}
-                    </Link>
-                    <p className="task-path">
-                      {getAreaName(task.areaId)}
-                      {task.listId ? ` > ${getListName(task.listId)}` : ""}
-                    </p>
-                    <p className="task-path">
-                      Score {item.score.toFixed(1)}
-                      {item.analysisSource ? ` - ${item.analysisSource} analysis` : ""}
-                    </p>
-                    <p className="task-reason">{item.reason}</p>
-                    <p className="task-next-action">
-                      <strong>Next Action:</strong>{" "}
-                      {task.nextAction || "No next action yet."}
-                    </p>
-                    {editingTaskId === task.id ? (
-                      <div className="inline-edit-row">
-                        <input
-                          value={nextActionDrafts[task.id] ?? ""}
-                          onChange={(event) =>
-                            setNextActionDrafts((current) => ({
-                              ...current,
-                              [task.id]: event.target.value
-                            }))
-                          }
-                          placeholder="Define the next concrete step..."
-                          disabled={isSaving}
-                        />
-                        <div className="action-row">
+                  <article
+                    key={task.id}
+                    className={`item${isWaiting ? " waiting" : ""}${isDone ? " done" : ""}`}
+                  >
+                    <span className="rank">{rank}</span>
+                    <input
+                      type="checkbox"
+                      className={isWaiting ? "check waiting" : "check"}
+                      checked={isDone}
+                      disabled={isSaving}
+                      aria-label={`Mark ${task.title} done`}
+                      onChange={(event) =>
+                        setTaskStatus(task.id, event.target.checked ? "done" : "open")
+                      }
+                    />
+                    <div className="body">
+                      <Link href={`/tasks/${task.id}`} className="title-line">
+                        {task.title}
+                      </Link>
+                      {item.reason ? <p className="reason">{item.reason}</p> : null}
+                      {task.nextAction ? (
+                        <div className="next-action">
+                          <span className="marker">Next →</span>
+                          <span>{task.nextAction}</span>
+                        </div>
+                      ) : (
+                        <div className="next-action empty">
+                          <span className="marker">Next →</span>
+                          <span>No next action yet — click edit to set one</span>
+                        </div>
+                      )}
+                      <div className="meta-line">
+                        <span className="chip path">
+                          <span className="area">{getAreaName(task.areaId)}</span>
+                          {task.listId ? (
+                            <>
+                              <span className="sep">/</span>
+                              {getListName(task.listId)}
+                            </>
+                          ) : null}
+                        </span>
+                        {isWaiting ? (
+                          <span className="chip status-waiting_on">
+                            Waiting{task.waitingSince ? ` · ${task.waitingSince}` : ""}
+                          </span>
+                        ) : null}
+                        {isDone ? <span className="chip status-done">Done</span> : null}
+                        {task.githubLink ? (
+                          <span className="chip">GH #{task.githubLink.issueNumber}</span>
+                        ) : null}
+                        {getTagNames(task.tagIds).map((tag) => (
+                          <span key={tag} className="chip tag">
+                            {tag}
+                          </span>
+                        ))}
+                        <span className="score">
+                          <span className="score-bar">
+                            <i style={{ width: `${scorePct}%` }} />
+                          </span>
+                          {item.score.toFixed(1)}
+                          {item.analysisSource ? (
+                            <span className="src">· {item.analysisSource}</span>
+                          ) : null}
+                        </span>
+                      </div>
+                      {editingTaskId === task.id ? (
+                        <div className="inline-edit">
+                          <input
+                            autoFocus
+                            value={nextActionDrafts[task.id] ?? ""}
+                            onChange={(event) =>
+                              setNextActionDrafts((current) => ({
+                                ...current,
+                                [task.id]: event.target.value
+                              }))
+                            }
+                            placeholder="Define the next concrete step…"
+                            disabled={isSaving}
+                          />
                           <button
                             type="button"
+                            className="btn sm"
                             onClick={() => saveNextAction(task.id)}
                             disabled={isSaving}
                           >
@@ -243,166 +292,61 @@ export function TodayScreen() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setEditingTaskId(null);
-                              setNextActionDrafts((current) => ({
-                                ...current,
-                                [task.id]: task.nextAction
-                              }));
-                            }}
+                            className="btn sm ghost"
+                            onClick={() => setEditingTaskId(null)}
                             disabled={isSaving}
                           >
                             Cancel
                           </button>
                         </div>
-                      </div>
-                    ) : null}
-                    <div className="tag-row">
-                      {getTagNames(task.tagIds).map((tag) => (
-                        <TagPill key={tag} label={tag} />
-                      ))}
-                      {task.githubLink ? <TagPill label="GitHub linked" /> : null}
-                      {task.recurrenceLabel ? <TagPill label={task.recurrenceLabel} /> : null}
+                      ) : null}
                     </div>
-                    <div className="action-row task-action-row-desktop">
+                    <div className="item-actions">
                       <button
                         type="button"
-                        onClick={() => {
-                          setEditingTaskId(task.id);
-                          setNextActionDrafts((current) => ({
-                            ...current,
-                            [task.id]: current[task.id] ?? task.nextAction
-                          }));
-                        }}
+                        className="btn sm"
+                        onClick={() => beginEditing(task.id, task.nextAction)}
                         disabled={isSaving}
                       >
-                        {task.nextAction ? "Edit next action" : "Add next action"}
+                        {task.nextAction ? "Edit next" : "Add next"}
                       </button>
-                      {task.status !== "done" ? (
+                      {!isDone ? (
                         <button
                           type="button"
+                          className="btn sm"
                           onClick={() => setTaskStatus(task.id, "done")}
                           disabled={isSaving}
                         >
-                          Mark done
+                          Done
                         </button>
                       ) : null}
-                      {task.status !== "waiting_on" ? (
+                      {!isWaiting && !isDone ? (
                         <button
                           type="button"
+                          className="btn sm"
                           onClick={() => setTaskStatus(task.id, "waiting_on")}
                           disabled={isSaving}
                         >
-                          Waiting on
+                          Waiting
                         </button>
                       ) : null}
                       <button
                         type="button"
+                        className="btn sm ghost"
                         onClick={() => dismissFromToday(task.id)}
                         disabled={isSaving}
+                        title="Dismiss from Today"
                       >
                         Dismiss
                       </button>
                     </div>
-                    <div className="mobile-quick-action-row">
-                      <select
-                        aria-label={`Quick action for ${task.title}`}
-                        value={mobileActionDrafts[task.id] ?? ""}
-                        onChange={(event) =>
-                          setMobileActionDrafts((current) => ({
-                            ...current,
-                            [task.id]: event.target.value
-                          }))
-                        }
-                        disabled={isSaving}
-                      >
-                        <option value="">Quick action</option>
-                        <option value="edit_next_action">
-                          {task.nextAction ? "Edit next action" : "Add next action"}
-                        </option>
-                        {task.status !== "done" ? (
-                          <option value="mark_done">Mark done</option>
-                        ) : null}
-                        {task.status !== "waiting_on" ? (
-                          <option value="mark_waiting">Set waiting on</option>
-                        ) : null}
-                        <option value="dismiss">Dismiss from Today</option>
-                      </select>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        disabled={isSaving || !(mobileActionDrafts[task.id] ?? "")}
-                        onClick={() => applyMobileAction(task.id)}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                    <div className="inline-comment task-inline-comment-desktop">
-                      <input
-                        value={commentForTask[task.id] ?? ""}
-                        onChange={(event) =>
-                          setCommentForTask((current) => ({
-                            ...current,
-                            [task.id]: event.target.value
-                          }))
-                        }
-                        placeholder="Add context..."
-                        disabled={isSaving}
-                      />
-                      <button
-                        type="button"
-                        disabled={isSaving}
-                        onClick={async () => {
-                          await addComment(task.id, commentForTask[task.id] ?? "");
-                          setCommentForTask((current) => ({ ...current, [task.id]: "" }));
-                        }}
-                      >
-                        Comment
-                      </button>
-                    </div>
-                    <details className="task-accordion task-inline-comment-mobile">
-                      <summary>Add note</summary>
-                      <div className="inline-comment">
-                        <input
-                          value={commentForTask[task.id] ?? ""}
-                          onChange={(event) =>
-                            setCommentForTask((current) => ({
-                              ...current,
-                              [task.id]: event.target.value
-                            }))
-                          }
-                          placeholder="Add context..."
-                          disabled={isSaving}
-                        />
-                        <button
-                          type="button"
-                          disabled={isSaving}
-                          onClick={async () => {
-                            await addComment(task.id, commentForTask[task.id] ?? "");
-                            setCommentForTask((current) => ({ ...current, [task.id]: "" }));
-                          }}
-                        >
-                          Comment
-                        </button>
-                      </div>
-                    </details>
                   </article>
                 );
               })}
-            </div>
-          </section>
-        )) : (
-          <section className="panel">
-            <div className="empty-card">
-              <h4>No Today plan yet</h4>
-              <p>
-                Capture some work, create your areas and lists, then place a few tasks out of
-                Inbox to generate a real plan.
-              </p>
-            </div>
-          </section>
-        )}
-      </div>
-    </div>
+            </section>
+          );
+        })
+      )}
+    </main>
   );
 }

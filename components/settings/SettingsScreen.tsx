@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { useAppState } from "@/components/shared/AppStateProvider";
-import { TagPill } from "@/components/shared/TagPill";
 import { GitHubRepositoryOption, TodayLens } from "@/lib/types";
 
 export function SettingsScreen() {
@@ -27,15 +26,52 @@ export function SettingsScreen() {
   const preferenceRows: {
     key: keyof typeof state.preferences;
     label: string;
+    hint?: string;
     min?: number;
     max?: number;
   }[] = [
-    { key: "quickWinsPreference", label: "Prefer quick wins", min: 0, max: 100 },
-    { key: "deepWorkPreference", label: "Prefer deep work", min: 0, max: 100 },
-    { key: "revenueWeight", label: "Revenue emphasis", min: 0, max: 100 },
-    { key: "unblockWeight", label: "Unblocking emphasis", min: 0, max: 100 },
-    { key: "strategicWeight", label: "Strategic emphasis", min: 0, max: 100 },
-    { key: "adminWeight", label: "Admin cleanup emphasis", min: 0, max: 100 }
+    {
+      key: "quickWinsPreference",
+      label: "Prefer quick wins",
+      hint: "Biases Today toward smaller tasks that clear fast.",
+      min: 0,
+      max: 100
+    },
+    {
+      key: "deepWorkPreference",
+      label: "Prefer deep work",
+      hint: "Biases Today toward longer focused sessions.",
+      min: 0,
+      max: 100
+    },
+    {
+      key: "revenueWeight",
+      label: "Revenue emphasis",
+      hint: "Weight applied to revenue-tagged tasks.",
+      min: 0,
+      max: 100
+    },
+    {
+      key: "unblockWeight",
+      label: "Unblocking emphasis",
+      hint: "Weight applied to tasks that unblock others.",
+      min: 0,
+      max: 100
+    },
+    {
+      key: "strategicWeight",
+      label: "Strategic emphasis",
+      hint: "Weight applied to strategic, long-horizon tasks.",
+      min: 0,
+      max: 100
+    },
+    {
+      key: "adminWeight",
+      label: "Admin cleanup emphasis",
+      hint: "Weight applied to administrative cleanup tasks.",
+      min: 0,
+      max: 100
+    }
   ];
 
   async function handleGitHubRepository(event: FormEvent<HTMLFormElement>) {
@@ -48,18 +84,14 @@ export function SettingsScreen() {
   async function loadRepositories() {
     setIsDiscovering(true);
     try {
-      const response = await fetch("/api/github/discover", {
-        cache: "no-store"
-      });
+      const response = await fetch("/api/github/discover", { cache: "no-store" });
       const data = (await response.json()) as {
         repositories?: GitHubRepositoryOption[];
         error?: string;
       };
-
       if (!response.ok) {
         throw new Error(data.error ?? "Could not load repositories.");
       }
-
       setDiscoveredRepositories(data.repositories ?? []);
     } finally {
       setIsDiscovering(false);
@@ -67,7 +99,9 @@ export function SettingsScreen() {
   }
 
   async function addSelectedRepository() {
-    const repository = discoveredRepositories.find((entry) => entry.id === selectedRepository);
+    const repository = discoveredRepositories.find(
+      (entry) => entry.id === selectedRepository
+    );
     if (!repository) return;
     await addGitHubRepository(repository.owner, repository.repo);
     setSelectedRepository("");
@@ -80,14 +114,20 @@ export function SettingsScreen() {
   }
 
   return (
-    <div className="settings-stack">
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Preferences</p>
-            <h2>Tune how Today feels by default</h2>
-          </div>
-        </div>
+    <div className="settings-page">
+      <div className="settings-head">
+        <h1>Settings</h1>
+        <p>
+          Tune how Today feels, manage tags, and wire up integrations. Changes
+          persist against the live database.
+        </p>
+      </div>
+
+      <section className="settings-section">
+        <h2>Today defaults</h2>
+        <p className="section-lede">
+          Balance between lens focus and task dimensions.
+        </p>
         <div className="settings-grid">
           <label className="field-block">
             <span>Default lens</span>
@@ -96,6 +136,7 @@ export function SettingsScreen() {
               onChange={(event) =>
                 updatePreferences("defaultLens", event.target.value as TodayLens)
               }
+              disabled={isSaving}
             >
               <option value="balanced">Balanced</option>
               <option value="revenue">Revenue</option>
@@ -104,234 +145,252 @@ export function SettingsScreen() {
               <option value="admin">Admin</option>
             </select>
           </label>
+        </div>
+        <div className="settings-grid" style={{ marginTop: 18 }}>
           {preferenceRows.map((row) => (
-            <label key={row.key} className="field-block">
-              <span>{row.label}</span>
+            <div key={row.key} className="pref-row">
+              <div className="pref-label">
+                <span>{row.label}</span>
+                {row.hint ? <small>{row.hint}</small> : null}
+              </div>
+              <span className="pref-value">
+                {state.preferences[row.key] as number}
+              </span>
               <input
                 type="range"
                 min={row.min}
                 max={row.max}
                 value={state.preferences[row.key] as number}
-                onChange={(event) => updatePreferences(row.key, Number(event.target.value))}
+                onChange={(event) =>
+                  updatePreferences(row.key, Number(event.target.value))
+                }
+                disabled={isSaving}
               />
-              <strong>{state.preferences[row.key] as number}</strong>
-            </label>
+            </div>
           ))}
         </div>
       </section>
 
-      <div className="detail-columns">
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Tags</p>
-              <h3>Manage task tags</h3>
-            </div>
-          </div>
-          <p className="muted-copy">
-            Tags are persisted in the data model and can now be assigned from Task Detail.
-          </p>
-          <form className="inline-create-form" onSubmit={handleCreateTag}>
-            <input
-              value={newTagName}
-              onChange={(event) => setNewTagName(event.target.value)}
-              placeholder="Create a tag..."
-              disabled={isSaving}
-            />
-            <button type="submit" disabled={isSaving || !newTagName.trim()}>
-              Add tag
-            </button>
-          </form>
-          <div className="tag-row">
-            {state.tags.length ? (
-              state.tags.map((tag) => <TagPill key={tag.id} label={tag.name} />)
-            ) : (
-              <p className="muted-copy">No tags yet.</p>
-            )}
-          </div>
-        </section>
+      <section className="settings-section">
+        <h2>Tags</h2>
+        <p className="section-lede">
+          Tags are persisted in the data model and can be assigned from Task
+          Detail.
+        </p>
+        <form className="form-row" onSubmit={handleCreateTag}>
+          <input
+            value={newTagName}
+            onChange={(event) => setNewTagName(event.target.value)}
+            placeholder="Create a tag…"
+            disabled={isSaving}
+          />
+          <button
+            type="submit"
+            className="btn"
+            disabled={isSaving || !newTagName.trim()}
+          >
+            Add tag
+          </button>
+        </form>
+        <div className="tag-list">
+          {state.tags.length ? (
+            state.tags.map((tag) => (
+              <span key={tag.id} className="tag-pill">
+                {tag.name}
+              </span>
+            ))
+          ) : (
+            <span className="muted-note">No tags yet.</span>
+          )}
+        </div>
+      </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">OpenAI</p>
-              <h3>AI readiness</h3>
-            </div>
+      <section className="settings-section">
+        <h2>OpenAI</h2>
+        <p className="section-lede">
+          {integrations.openAi.configured
+            ? "OpenAI is configured. Inbox suggestions and Today briefings can use the configured models."
+            : "OpenAI is not configured yet. Deterministic fallbacks are used until you add your API key to the environment."}
+        </p>
+        <div className="info-list">
+          <div>
+            <strong>Classify model:</strong> {integrations.openAi.classifyModel}
           </div>
-          <p className="muted-copy">
-            {integrations.openAi.configured
-              ? "OpenAI is configured. Inbox suggestions and Today briefings can use the configured models."
-              : "OpenAI is not configured yet. The app is using deterministic fallbacks until you add your API key to the environment."}
-          </p>
-          <div className="activity-list">
-            <div className="activity-row">
-              <p>Classify model: {integrations.openAi.classifyModel}</p>
-            </div>
-            <div className="activity-row">
-              <p>Today model: {integrations.openAi.todayModel}</p>
-            </div>
-            <div className="activity-row">
-              <p>Transcription model: {integrations.openAi.transcriptionModel}</p>
-            </div>
+          <div>
+            <strong>Today model:</strong> {integrations.openAi.todayModel}
           </div>
-        </section>
+          <div>
+            <strong>Transcription model:</strong>{" "}
+            {integrations.openAi.transcriptionModel}
+          </div>
+        </div>
+      </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">GitHub</p>
-              <h3>Connect repos, then create issues from tasks</h3>
-            </div>
-          </div>
-          <p className="muted-copy">
-            {integrations.github.configured
-              ? "1. Connect GitHub here. 2. Load and add one of your repositories. 3. Open a task and create an issue in the chosen repository."
-              : "Add a GitHub personal access token in the environment when you want real issue creation and sync."}
-          </p>
-          <div className="action-row">
-            <button type="button" onClick={toggleGithubConnected} disabled={isSaving}>
-              {state.githubConnected ? "Disconnect workspace GitHub" : "Connect workspace GitHub"}
-            </button>
-            <button
-              type="button"
-              onClick={syncGithubIssues}
-              disabled={
-                isSaving || !integrations.github.configured || !state.githubRepositories.length
-              }
-            >
-              Sync configured repo issues
-            </button>
-            <button
-              type="button"
-              onClick={loadRepositories}
-              disabled={isSaving || isDiscovering || !integrations.github.configured}
-            >
-              {isDiscovering ? "Loading repos..." : "Load my repositories"}
-            </button>
-          </div>
-          {discoveredRepositories.length ? (
-            <div className="task-edit-form">
-              <label className="field-block">
-                <span>Available repositories</span>
-                <select
-                  value={selectedRepository}
-                  onChange={(event) => setSelectedRepository(event.target.value)}
-                  disabled={isSaving || isDiscovering}
-                >
-                  <option value="">Choose a repository...</option>
-                  {discoveredRepositories
-                    .filter(
-                      (repository) =>
-                        !state.githubRepositories.some(
-                          (configured) => configured.label === repository.label
-                        )
-                    )
-                    .map((repository) => (
-                      <option key={repository.id} value={repository.id}>
-                        {repository.label}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={addSelectedRepository}
-                disabled={isSaving || !selectedRepository}
+      <section className="settings-section">
+        <h2>GitHub</h2>
+        <p className="section-lede">
+          {integrations.github.configured
+            ? "Connect GitHub, load a repository, then create issues from Task Detail."
+            : "Add a GitHub personal access token in the environment to enable real issue creation and sync."}
+        </p>
+        <div className="action-row">
+          <button
+            type="button"
+            className="btn"
+            onClick={toggleGithubConnected}
+            disabled={isSaving}
+          >
+            {state.githubConnected
+              ? "Disconnect workspace GitHub"
+              : "Connect workspace GitHub"}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={syncGithubIssues}
+            disabled={
+              isSaving ||
+              !integrations.github.configured ||
+              !state.githubRepositories.length
+            }
+          >
+            Sync configured repo issues
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={loadRepositories}
+            disabled={isSaving || isDiscovering || !integrations.github.configured}
+          >
+            {isDiscovering ? "Loading repos…" : "Load my repositories"}
+          </button>
+        </div>
+
+        {discoveredRepositories.length ? (
+          <div className="form-row" style={{ marginTop: 14 }}>
+            <label className="field-block" style={{ flex: 1 }}>
+              <span>Available repositories</span>
+              <select
+                value={selectedRepository}
+                onChange={(event) => setSelectedRepository(event.target.value)}
+                disabled={isSaving || isDiscovering}
               >
-                Add selected repository
-              </button>
-            </div>
-          ) : null}
-          <form className="placement-grid github-repo-form" onSubmit={handleGitHubRepository}>
-            <label className="field-block">
-              <span>Owner</span>
-              <input
-                value={githubOwner}
-                onChange={(event) => setGitHubOwner(event.target.value)}
-                placeholder="octocat"
-                disabled={isSaving || !integrations.github.configured}
-              />
-            </label>
-            <label className="field-block">
-              <span>Repository</span>
-              <input
-                value={githubRepo}
-                onChange={(event) => setGitHubRepo(event.target.value)}
-                placeholder="my-repo"
-                disabled={isSaving || !integrations.github.configured}
-              />
+                <option value="">Choose a repository…</option>
+                {discoveredRepositories
+                  .filter(
+                    (repository) =>
+                      !state.githubRepositories.some(
+                        (configured) => configured.label === repository.label
+                      )
+                  )
+                  .map((repository) => (
+                    <option key={repository.id} value={repository.id}>
+                      {repository.label}
+                    </option>
+                  ))}
+              </select>
             </label>
             <button
-              type="submit"
-              disabled={
-                isSaving ||
-                !integrations.github.configured ||
-                !githubOwner.trim() ||
-                !githubRepo.trim()
-              }
+              type="button"
+              className="btn"
+              onClick={addSelectedRepository}
+              disabled={isSaving || !selectedRepository}
             >
-              Add repository
+              Add selected
             </button>
-          </form>
-          <div className="activity-list">
-            {state.githubRepositories.length ? (
-              state.githubRepositories.map((entry) => (
-                <div key={entry.id} className="activity-row">
-                  <p>{entry.label}</p>
-                </div>
-              ))
-            ) : (
-              <div className="activity-row">
-                <p>No repositories configured yet. Load one from GitHub or add one manually, then create issues from Task Detail.</p>
-              </div>
-            )}
           </div>
-        </section>
-      </div>
+        ) : null}
 
-      <div className="detail-columns">
-        <section className="panel">
-          <div className="panel-header">
+        <form
+          className="form-row"
+          style={{ marginTop: 14 }}
+          onSubmit={handleGitHubRepository}
+        >
+          <label className="field-block" style={{ flex: 1 }}>
+            <span>Owner</span>
+            <input
+              value={githubOwner}
+              onChange={(event) => setGitHubOwner(event.target.value)}
+              placeholder="octocat"
+              disabled={isSaving || !integrations.github.configured}
+            />
+          </label>
+          <label className="field-block" style={{ flex: 1 }}>
+            <span>Repository</span>
+            <input
+              value={githubRepo}
+              onChange={(event) => setGitHubRepo(event.target.value)}
+              placeholder="my-repo"
+              disabled={isSaving || !integrations.github.configured}
+            />
+          </label>
+          <button
+            type="submit"
+            className="btn"
+            disabled={
+              isSaving ||
+              !integrations.github.configured ||
+              !githubOwner.trim() ||
+              !githubRepo.trim()
+            }
+          >
+            Add manually
+          </button>
+        </form>
+
+        <div className="info-list">
+          {state.githubRepositories.length ? (
+            state.githubRepositories.map((entry) => (
+              <div key={entry.id}>
+                <strong>{entry.label}</strong>
+              </div>
+            ))
+          ) : (
             <div>
-              <p className="eyebrow">Import</p>
-              <h3>Seeded review flow</h3>
+              No repositories configured yet. Load one from GitHub or add one
+              manually, then create issues from Task Detail.
             </div>
-          </div>
-          <p className="muted-copy">
-            Use this to validate the real import persistence path while we keep the source
-            data intentionally simple.
-          </p>
-          <button type="button" onClick={importSampleTasks} disabled={isSaving}>
+          )}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>Import</h2>
+        <p className="section-lede">
+          Validate the import persistence path with a deterministic sample.
+        </p>
+        <div className="action-row">
+          <button
+            type="button"
+            className="btn"
+            onClick={importSampleTasks}
+            disabled={isSaving}
+          >
             Import sample task
           </button>
-          <div className="activity-list">
+        </div>
+        {state.importHistory.length ? (
+          <div className="activity-log">
             {state.importHistory.map((entry) => (
-              <div key={entry} className="activity-row">
-                <p>{entry}</p>
-              </div>
+              <p key={entry}>{entry}</p>
             ))}
           </div>
-        </section>
+        ) : null}
+      </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Database</p>
-              <h3>Runtime foundation</h3>
-            </div>
+      <section className="settings-section">
+        <h2>Database</h2>
+        <p className="section-lede">
+          The app runs against a real Prisma-backed layer for tasks, comments,
+          Today planning inputs, imports, and integration state.
+        </p>
+        <div className="info-list">
+          <div>
+            <strong>Provider:</strong> {integrations.database.provider} ·{" "}
+            {integrations.database.ready ? "ready" : "not ready"}
           </div>
-          <p className="muted-copy">
-            The app is now running against a real Prisma-backed database layer for tasks,
-            comments, Today planning inputs, imports, and integration state.
-          </p>
-          <div className="activity-row">
-            <p>
-              Provider: {integrations.database.provider} ·{" "}
-              {integrations.database.ready ? "ready" : "not ready"}
-            </p>
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }
