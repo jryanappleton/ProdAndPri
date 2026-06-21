@@ -149,10 +149,11 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
         <div className="tag-row">
           <TagPill label={`AI: ${getFreshnessLabel(currentTask.analysis.freshness)}`} />
         </div>
-        <div className="action-row">
+        <div className="action-row task-detail-actions">
           {currentTask.status !== "open" ? (
             <button
               type="button"
+              className="btn sm"
               onClick={() => setTaskStatus(currentTask.id, "open")}
               disabled={isSaving}
             >
@@ -162,6 +163,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           {currentTask.status !== "waiting_on" ? (
             <button
               type="button"
+              className="btn sm"
               onClick={() => setTaskStatus(currentTask.id, "waiting_on")}
               disabled={isSaving}
             >
@@ -171,6 +173,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           {currentTask.status !== "done" ? (
             <button
               type="button"
+              className="btn sm accent"
               onClick={() => setTaskStatus(currentTask.id, "done")}
               disabled={isSaving}
             >
@@ -179,6 +182,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           ) : null}
           <button
             type="button"
+            className="btn sm"
             onClick={() => generateTaskDescription(currentTask.id)}
             disabled={isSaving}
           >
@@ -186,6 +190,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           </button>
           <button
             type="button"
+            className="btn sm"
             onClick={() => analyzeTask(currentTask.id)}
             disabled={isSaving || !currentTask.analysis.isEligible}
           >
@@ -197,6 +202,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           </button>
           <button
             type="button"
+            className="btn sm"
             onClick={() => {
               if (!isEditing) {
                 syncDraftsFromTask();
@@ -209,7 +215,7 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
           </button>
           <button
             type="button"
-            className="danger-button"
+            className="btn sm danger"
             onClick={handleDelete}
             disabled={isSaving}
           >
@@ -325,11 +331,12 @@ export function TaskDetailScreen({ taskId }: { taskId: string }) {
               <p className="muted-copy">Choose a list before saving placement.</p>
             ) : null}
             <div className="action-row">
-              <button type="submit" disabled={isSaving || !canSaveTask}>
+              <button type="submit" className="btn accent" disabled={isSaving || !canSaveTask}>
                 Save changes
               </button>
               <button
                 type="button"
+                className="btn ghost"
                 onClick={() => {
                   setIsEditing(false);
                   syncDraftsFromTask();

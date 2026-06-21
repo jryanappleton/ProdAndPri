@@ -1425,6 +1425,42 @@ a.title-line:hover, .title-line:hover { color: var(--accent-ink); }
   min-width: 0;
   display: flex; flex-direction: column; gap: 18px;
 }
+.detail-layout button:not(.btn):not(.icon-btn):not(.lens-chip) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.detail-layout button:not(.btn):not(.icon-btn):not(.lens-chip):hover:not(:disabled) {
+  border-color: var(--rule);
+  background: var(--line-soft);
+}
+.detail-layout button:not(.btn):not(.icon-btn):not(.lens-chip):disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.detail-layout form button[type="submit"]:not(.btn) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+}
+.detail-layout form button[type="submit"]:not(.btn):hover:not(:disabled) {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+.task-detail-actions {
+  padding-top: 2px;
+}
 .detail-side {
   display: flex; flex-direction: column; gap: 18px;
 }
