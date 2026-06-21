@@ -881,20 +881,8 @@ export async function createTask(input: {
   title: string;
   source?: TaskSourceType;
 }) {
-  const workspace = await prisma.workspace.findFirstOrThrow({
-    include: {
-      areas: true,
-      lists: true,
-      tags: true
-    }
-  });
+  const workspace = await prisma.workspace.findFirstOrThrow();
   const title = input.title.trim();
-  const suggestions = await suggestTaskUpdates({
-    title,
-    areas: workspace.areas.map((area) => area.name),
-    lists: workspace.lists.map((list) => list.name),
-    tags: workspace.tags.map((tag) => tag.name)
-  });
 
   const task = await prisma.task.create({
     data: {
@@ -907,11 +895,6 @@ export async function createTask(input: {
       status: TaskStatus.open,
       sourceType: input.source ?? TaskSourceType.manual,
       isInbox: true,
-      aiState: {
-        create: {
-          classification: serializeSuggestions(suggestions)
-        }
-      },
       activities: {
         create: buildActivity("task_captured", "Captured into Inbox")
       }
@@ -920,6 +903,67 @@ export async function createTask(input: {
   });
 
   return mapTask(task);
+}
+
+export async function classifyTask(taskId: string, expectedTitle?: string) {
+  const workspace = await prisma.workspace.findFirstOrThrow({
+    include: {
+      areas: true,
+      lists: true,
+      tags: true
+    }
+  });
+  const task = await prisma.task.findUniqueOrThrow({
+    where: {
+      id: taskId
+    },
+    select: {
+      title: true
+    }
+  });
+
+  if (expectedTitle && task.title !== expectedTitle.trim()) {
+    return getTaskSnapshot(taskId);
+  }
+
+  const suggestions = await suggestTaskUpdates({
+    title: task.title,
+    areas: workspace.areas.map((area) => area.name),
+    lists: workspace.lists.map((list) => list.name),
+    tags: workspace.tags.map((tag) => tag.name)
+  });
+  const latestTask = await prisma.task.findUniqueOrThrow({
+    where: {
+      id: taskId
+    },
+    select: {
+      title: true
+    }
+  });
+
+  if (latestTask.title !== task.title) {
+    return getTaskSnapshot(taskId);
+  }
+
+  await prisma.task.update({
+    where: {
+      id: taskId
+    },
+    data: {
+      aiState: {
+        upsert: {
+          create: {
+            classification: serializeSuggestions(suggestions)
+          },
+          update: {
+            classification: serializeSuggestions(suggestions)
+          }
+        }
+      }
+    }
+  });
+
+  return getTaskSnapshot(taskId);
 }
 
 export async function createArea(name: string) {

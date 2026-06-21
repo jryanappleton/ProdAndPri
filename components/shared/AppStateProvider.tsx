@@ -247,6 +247,19 @@ export function AppStateProvider({
         })
       });
       mergeTask(result.task);
+
+      void apiRequest<{ task: Task }>(`/api/tasks/${result.task.id}/classification`, {
+        method: "POST",
+        body: JSON.stringify({
+          expectedTitle: result.task.title
+        })
+      })
+        .then((classificationResult) => {
+          mergeTask(classificationResult.task);
+        })
+        .catch((error) => {
+          console.warn("Failed to classify task after capture.", error);
+        });
     } finally {
       setIsSaving(false);
     }
